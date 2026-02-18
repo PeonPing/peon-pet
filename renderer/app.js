@@ -18,13 +18,13 @@ const renderer = new THREE.WebGLRenderer({
   alpha: true,
   antialias: false,
 });
-renderer.setSize(200, 200);
+renderer.setSize(200, 230);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setClearColor(0x000000, 0);
 
 const scene = new THREE.Scene();
 
-const camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 10);
+const camera = new THREE.OrthographicCamera(-100, 100, 115, -115, 0.1, 10);
 camera.position.z = 1;
 
 // --- Sprite mesh ---
@@ -45,6 +45,7 @@ const material = new THREE.MeshBasicMaterial({
 });
 const sprite = new THREE.Mesh(geometry, material);
 scene.add(sprite);
+sprite.position.y = -15;
 
 // --- Flash overlay ---
 async function loadShader(url) {
@@ -72,7 +73,7 @@ async function setupFlash() {
     depthTest: false,
   });
 
-  const flashGeo = new THREE.PlaneGeometry(200, 200);
+  const flashGeo = new THREE.PlaneGeometry(200, 230);
   flashMesh = new THREE.Mesh(flashGeo, flashMat);
   flashMesh.position.z = 0.5;
   scene.add(flashMesh);
