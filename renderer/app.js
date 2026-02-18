@@ -137,7 +137,6 @@ function burstParticles() {
     const speed = 40 + Math.random() * 80;
     particleVelocities[i] = {
       x: Math.cos(angle) * speed,
-      y: Math.abs(Math.sin(angle)) * speed + 20,
       vy: Math.abs(Math.sin(angle)) * speed + 20,
       gravity: -60 - Math.random() * 40,
     };
@@ -179,6 +178,7 @@ const ANIM_FLASH = {
 let currentAnim = 'idle';
 let currentFrame = 0;
 let frameTimer = 0;
+let pendingIdle = false;
 
 function setFrame(animName, frame) {
   const { row } = ANIM_CONFIG[animName];
@@ -189,6 +189,7 @@ function setFrame(animName, frame) {
 }
 
 function playAnim(animName) {
+  pendingIdle = false;
   if (!ANIM_CONFIG[animName]) return;
   currentAnim = animName;
   currentFrame = 0;
@@ -249,7 +250,13 @@ function animate(time) {
         currentFrame = 0;
       } else {
         currentFrame = cfg.frames - 1;
-        setTimeout(() => playAnim('idle'), 300);
+        if (!pendingIdle) {
+          pendingIdle = true;
+          setTimeout(() => {
+            pendingIdle = false;
+            playAnim('sleeping');
+          }, 300);
+        }
       }
     }
     setFrame(currentAnim, currentFrame);
@@ -257,7 +264,7 @@ function animate(time) {
 
   // Screen shake
   if (shakeIntensity > 0) {
-    shakeIntensity = Math.max(0, shakeIntensity - SHAKE_DECAY * delta * 60 * delta);
+    shakeIntensity = Math.max(0, shakeIntensity - SHAKE_DECAY * delta);
     sprite.position.x = (Math.random() - 0.5) * shakeIntensity;
     sprite.position.y = (Math.random() - 0.5) * shakeIntensity;
   } else {

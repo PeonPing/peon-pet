@@ -8,10 +8,10 @@
     "dev": "electron . --dev"
   },
   "dependencies": {
-    "canvas": "^3.2.1",
     "three": "^0.183.0"
   },
   "devDependencies": {
+    "canvas": "^3.2.1",
     "electron": "^40.4.1"
   }
 }
