@@ -1,0 +1,17 @@
+{
+  "name": "peon-ping-avatar",
+  "version": "0.1.0",
+  "description": "Always-on-top Peon avatar that reacts to peon-ping events",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "dependencies": {
+    "canvas": "^3.2.1",
+    "three": "^0.183.0"
+  },
+  "devDependencies": {
+    "electron": "^40.4.1"
+  }
+}
