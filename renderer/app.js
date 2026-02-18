@@ -152,6 +152,14 @@ function burstParticles() {
   particleGeo.attributes.color.needsUpdate = true;
 }
 
+// --- Screen shake ---
+let shakeIntensity = 0;
+const SHAKE_DECAY = 8.0;
+
+function triggerShake(intensity = 12) {
+  shakeIntensity = intensity;
+}
+
 // --- ANIM_FLASH map ---
 const ANIM_FLASH = {
   celebrate: () => {
@@ -161,7 +169,10 @@ const ANIM_FLASH = {
   alarmed:   () => triggerFlash(1.0, 0.1, 0.1, 0.4, 3.0),
   facepalm:  () => triggerFlash(0.8, 0.0, 0.0, 0.5, 2.0),
   wave:      () => triggerFlash(0.4, 0.8, 1.0, 0.3, 2.0),
-  annoyed:   () => triggerFlash(1.0, 0.4, 0.0, 0.4, 3.0),
+  annoyed:   () => {
+    triggerFlash(1.0, 0.4, 0.0, 0.4, 3.0);
+    triggerShake(10);
+  },
 };
 
 // --- Animation state machine ---
@@ -242,6 +253,16 @@ function animate(time) {
       }
     }
     setFrame(currentAnim, currentFrame);
+  }
+
+  // Screen shake
+  if (shakeIntensity > 0) {
+    shakeIntensity = Math.max(0, shakeIntensity - SHAKE_DECAY * delta * 60 * delta);
+    sprite.position.x = (Math.random() - 0.5) * shakeIntensity;
+    sprite.position.y = (Math.random() - 0.5) * shakeIntensity;
+  } else {
+    sprite.position.x = 0;
+    sprite.position.y = 0;
   }
 
   renderer.render(scene, camera);
