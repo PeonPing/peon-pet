@@ -169,6 +169,15 @@ let currentAnim = 'idle';
 let currentFrame = 0;
 let frameTimer = 0;
 let pendingIdle = false;
+let idleTimer = null;
+const IDLE_TIMEOUT_MS = 30000;
+
+function resetIdleTimer() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    playAnim('sleeping');
+  }, IDLE_TIMEOUT_MS);
+}
 
 function setFrame(animName, frame) {
   const { row } = ANIM_CONFIG[animName];
@@ -187,6 +196,9 @@ function playAnim(animName) {
   setFrame(animName, 0);
   if (ANIM_FLASH[animName]) {
     ANIM_FLASH[animName]();
+  }
+  if (animName !== 'sleeping') {
+    resetIdleTimer();
   }
 }
 
