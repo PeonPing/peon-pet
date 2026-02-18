@@ -26,7 +26,6 @@ renderer.setClearColor(0x000000, 0);
 
 const scene = new THREE.Scene();
 
-// Orthographic camera: 200x200 world units
 const camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 10);
 camera.position.z = 1;
 
@@ -49,6 +48,56 @@ const material = new THREE.MeshBasicMaterial({
 const sprite = new THREE.Mesh(geometry, material);
 scene.add(sprite);
 
+// --- Flash overlay ---
+async function loadShader(url) {
+  const r = await fetch(url);
+  return r.text();
+}
+
+let flashMesh = null;
+let flashIntensity = 0;
+const flashColor = new THREE.Color(1, 1, 0);
+let flashDecay = 2.0;
+
+async function setupFlash() {
+  const vert = await loadShader('./shaders/flash.vert');
+  const frag = await loadShader('./shaders/flash.frag');
+
+  const flashMat = new THREE.ShaderMaterial({
+    vertexShader: vert,
+    fragmentShader: frag,
+    uniforms: {
+      flashColor: { value: flashColor },
+      flashIntensity: { value: 0.0 },
+    },
+    transparent: true,
+    depthTest: false,
+  });
+
+  const flashGeo = new THREE.PlaneGeometry(200, 200);
+  flashMesh = new THREE.Mesh(flashGeo, flashMat);
+  flashMesh.position.z = 0.5;
+  scene.add(flashMesh);
+}
+
+setupFlash();
+
+function triggerFlash(r, g, b, intensity = 0.6, decay = 3.0) {
+  if (!flashMesh) return;
+  flashColor.setRGB(r, g, b);
+  flashMesh.material.uniforms.flashColor.value = flashColor;
+  flashIntensity = intensity;
+  flashDecay = decay;
+}
+
+const ANIM_FLASH = {
+  celebrate: () => triggerFlash(1.0, 0.8, 0.0, 0.5, 2.5),
+  alarmed:   () => triggerFlash(1.0, 0.1, 0.1, 0.4, 3.0),
+  facepalm:  () => triggerFlash(0.8, 0.0, 0.0, 0.5, 2.0),
+  wave:      () => triggerFlash(0.4, 0.8, 1.0, 0.3, 2.0),
+  annoyed:   () => triggerFlash(1.0, 0.4, 0.0, 0.4, 3.0),
+};
+
 // --- Animation state machine ---
 let currentAnim = 'idle';
 let currentFrame = 0;
@@ -68,6 +117,9 @@ function playAnim(animName) {
   currentFrame = 0;
   frameTimer = 0;
   setFrame(animName, 0);
+  if (ANIM_FLASH[animName]) {
+    ANIM_FLASH[animName]();
+  }
 }
 
 playAnim('idle');
@@ -84,6 +136,13 @@ function animate(time) {
   const delta = Math.min((time - lastTime) / 1000, 0.1);
   lastTime = time;
 
+  // Decay flash
+  if (flashMesh && flashIntensity > 0) {
+    flashIntensity = Math.max(0, flashIntensity - delta * flashDecay);
+    flashMesh.material.uniforms.flashIntensity.value = flashIntensity;
+  }
+
+  // Advance animation frame
   const cfg = ANIM_CONFIG[currentAnim];
   frameTimer += delta;
   if (frameTimer >= 1 / cfg.fps) {
