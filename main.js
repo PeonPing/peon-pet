@@ -20,6 +20,17 @@ const EVENT_TO_ANIM = {
 
 let lastTimestamp = 0;
 
+const sessionActivity = new Map();
+const SESSION_PRUNE_MS = 4 * 60 * 60 * 1000;
+
+function updateSessionActivity(sessionId) {
+  sessionActivity.set(sessionId, Date.now());
+  const cutoff = Date.now() - SESSION_PRUNE_MS;
+  for (const [id, t] of sessionActivity) {
+    if (t < cutoff) sessionActivity.delete(id);
+  }
+}
+
 function readStateFile() {
   try {
     const raw = fs.readFileSync(STATE_FILE, 'utf8');
@@ -34,14 +45,24 @@ function startPolling() {
     const state = readStateFile();
     if (!state || !state.last_active) return;
 
-    const { timestamp, event } = state.last_active;
+    const { timestamp, event, session_id } = state.last_active;
     if (timestamp === lastTimestamp) return;
     lastTimestamp = timestamp;
 
-    const anim = EVENT_TO_ANIM[event];
-    if (!anim) return;
+    if (session_id) updateSessionActivity(session_id);
 
     if (win && !win.isDestroyed()) {
+      const now = Date.now();
+      const ACTIVE_MS = 30000;
+      const sessions = [...sessionActivity.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([id, t]) => ({ id, active: (now - t) < ACTIVE_MS }));
+      win.webContents.send('session-update', sessions);
+    }
+
+    const anim = EVENT_TO_ANIM[event];
+    if (anim && win && !win.isDestroyed()) {
       win.webContents.send('peon-event', { anim, event });
     }
   }, 200);

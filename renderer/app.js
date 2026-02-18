@@ -81,6 +81,44 @@ async function setupFlash() {
 
 setupFlash();
 
+// --- Session dots ---
+const MAX_DOTS = 5;
+const DOT_SIZE = 10;
+const DOT_GAP = 4;
+const DOT_Y = 105;
+
+const dotMeshes = [];
+const DOT_COLOR_ACTIVE = new THREE.Color(0x44ff44);
+const DOT_COLOR_IDLE   = new THREE.Color(0x444444);
+
+for (let i = 0; i < MAX_DOTS; i++) {
+  const geo = new THREE.PlaneGeometry(DOT_SIZE, DOT_SIZE);
+  const mat = new THREE.MeshBasicMaterial({ color: DOT_COLOR_IDLE.clone(), transparent: true, opacity: 0 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.z = 0.3;
+  scene.add(mesh);
+  dotMeshes.push(mesh);
+}
+
+function updateDots(sessions) {
+  const count = Math.min(sessions.length, MAX_DOTS);
+  const totalWidth = count * DOT_SIZE + Math.max(0, count - 1) * DOT_GAP;
+  const startX = -totalWidth / 2 + DOT_SIZE / 2;
+
+  for (let i = 0; i < MAX_DOTS; i++) {
+    const mesh = dotMeshes[i];
+    if (i < count) {
+      mesh.position.x = startX + i * (DOT_SIZE + DOT_GAP);
+      mesh.position.y = DOT_Y;
+      mesh.material.color.copy(sessions[i].active ? DOT_COLOR_ACTIVE : DOT_COLOR_IDLE);
+      mesh.material.opacity = 1;
+    } else {
+      mesh.material.opacity = 0;
+    }
+    mesh.material.needsUpdate = true;
+  }
+}
+
 function triggerFlash(r, g, b, intensity = 0.6, decay = 3.0) {
   if (!flashMesh) return;
   flashColor.setRGB(r, g, b);
@@ -208,6 +246,10 @@ playAnim('sleeping');
 // --- IPC events ---
 window.peonBridge.onEvent(({ anim }) => {
   playAnim(anim);
+});
+
+window.peonBridge.onSessionUpdate((sessions) => {
+  updateDots(sessions);
 });
 
 // --- Render loop ---
