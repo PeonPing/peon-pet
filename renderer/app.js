@@ -29,7 +29,7 @@ camera.position.z = 1;
 
 // --- Sprite mesh ---
 const loader = new THREE.TextureLoader();
-const atlas = loader.load('./assets/laptop-guy-atlas.png', () => {
+const atlas = loader.load('./assets/orc-sprite-atlas.png', () => {
   atlas.magFilter = THREE.NearestFilter;
   atlas.minFilter = THREE.NearestFilter;
   atlas.generateMipmaps = false;
