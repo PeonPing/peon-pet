@@ -2,15 +2,13 @@ import * as THREE from '../node_modules/three/build/three.module.js';
 
 // --- Config ---
 const ATLAS_COLS = 6;
-const ATLAS_ROWS = 6;
+const ATLAS_ROWS = 4;
 
 const ANIM_CONFIG = {
-  idle:      { row: 0, frames: 6, fps: 4,  loop: true  },
-  celebrate: { row: 1, frames: 6, fps: 8,  loop: false },
-  alarmed:   { row: 2, frames: 6, fps: 8,  loop: false },
-  facepalm:  { row: 3, frames: 5, fps: 6,  loop: false },
-  wave:      { row: 4, frames: 6, fps: 6,  loop: false },
-  annoyed:   { row: 5, frames: 6, fps: 6,  loop: false },
+  sleeping: { row: 0, frames: 6, fps: 3,  loop: true  },
+  waking:   { row: 1, frames: 6, fps: 8,  loop: false },
+  typing:   { row: 2, frames: 6, fps: 8,  loop: false },
+  alarmed:  { row: 3, frames: 6, fps: 8,  loop: false },
 };
 
 // --- Scene setup ---
@@ -31,7 +29,7 @@ camera.position.z = 1;
 
 // --- Sprite mesh ---
 const loader = new THREE.TextureLoader();
-const atlas = loader.load('./assets/peon-atlas.png', () => {
+const atlas = loader.load('./assets/laptop-guy-atlas.png', () => {
   atlas.magFilter = THREE.NearestFilter;
   atlas.minFilter = THREE.NearestFilter;
   atlas.generateMipmaps = false;
@@ -161,17 +159,9 @@ function triggerShake(intensity = 12) {
 
 // --- ANIM_FLASH map ---
 const ANIM_FLASH = {
-  celebrate: () => {
-    triggerFlash(1.0, 0.8, 0.0, 0.5, 2.5);
-    burstParticles();
-  },
-  alarmed:   () => triggerFlash(1.0, 0.1, 0.1, 0.4, 3.0),
-  facepalm:  () => triggerFlash(0.8, 0.0, 0.0, 0.5, 2.0),
-  wave:      () => triggerFlash(0.4, 0.8, 1.0, 0.3, 2.0),
-  annoyed:   () => {
-    triggerFlash(1.0, 0.4, 0.0, 0.4, 3.0);
-    triggerShake(10);
-  },
+  waking:  () => triggerFlash(0.4, 0.8, 1.0, 0.3, 2.0),
+  typing:  () => triggerFlash(1.0, 0.8, 0.0, 0.3, 2.0),
+  alarmed: () => triggerFlash(1.0, 0.1, 0.1, 0.5, 2.5),
 };
 
 // --- Animation state machine ---
@@ -200,7 +190,7 @@ function playAnim(animName) {
   }
 }
 
-playAnim('idle');
+playAnim('sleeping');
 
 // --- IPC events ---
 window.peonBridge.onEvent(({ anim }) => {

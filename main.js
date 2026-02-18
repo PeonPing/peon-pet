@@ -10,12 +10,12 @@ const STATE_FILE = path.join(os.homedir(), '.claude', 'hooks', 'peon-ping', '.st
 
 // Map raw hook event names to avatar animation states
 const EVENT_TO_ANIM = {
-  SessionStart:        'wave',
-  Stop:                'celebrate',
-  PermissionRequest:   'alarmed',
-  PostToolUseFailure:  'facepalm',
-  UserPromptSubmit:    'annoyed',
-  PreCompact:          'alarmed',
+  SessionStart:       'waking',
+  Stop:               'typing',
+  UserPromptSubmit:   'typing',
+  PermissionRequest:  'alarmed',
+  PostToolUseFailure: 'alarmed',
+  PreCompact:         'alarmed',
 };
 
 let lastTimestamp = 0;
