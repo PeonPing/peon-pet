@@ -89,7 +89,7 @@ const DOT_Y = 105;
 
 const dotMeshes = [];
 const DOT_COLOR_ACTIVE = new THREE.Color(0x44ff44);
-const DOT_COLOR_IDLE   = new THREE.Color(0x444444);
+const DOT_COLOR_IDLE   = new THREE.Color(0x666666);
 
 for (let i = 0; i < MAX_DOTS; i++) {
   const geo = new THREE.PlaneGeometry(DOT_SIZE, DOT_SIZE);
@@ -314,7 +314,7 @@ function animate(time) {
     sprite.position.y = (Math.random() - 0.5) * shakeIntensity;
   } else {
     sprite.position.x = 0;
-    sprite.position.y = 0;
+    sprite.position.y = -15;
   }
 
   renderer.render(scene, camera);
