@@ -90,8 +90,74 @@ function triggerFlash(r, g, b, intensity = 0.6, decay = 3.0) {
   flashDecay = decay;
 }
 
+// --- Particle burst ---
+const PARTICLE_COUNT = 30;
+const particlePositions = new Float32Array(PARTICLE_COUNT * 3);
+const particleColors = new Float32Array(PARTICLE_COUNT * 3);
+const particleVelocities = new Array(PARTICLE_COUNT);
+
+const particleGeo = new THREE.BufferGeometry();
+particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+particleGeo.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
+
+const particleMat = new THREE.PointsMaterial({
+  size: 6,
+  vertexColors: true,
+  transparent: true,
+  opacity: 1.0,
+  depthTest: false,
+  sizeAttenuation: false,
+});
+
+const particles = new THREE.Points(particleGeo, particleMat);
+particles.visible = false;
+particles.position.z = 0.8;
+scene.add(particles);
+
+let particleLifetime = 0;
+const PARTICLE_DURATION = 1.2;
+
+function burstParticles() {
+  particleLifetime = PARTICLE_DURATION;
+  particles.visible = true;
+  particleMat.opacity = 1.0;
+
+  const goldColors = [
+    [1.0, 0.85, 0.0],
+    [1.0, 1.0,  0.4],
+    [0.9, 0.6,  0.1],
+  ];
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    particlePositions[i * 3]     = (Math.random() - 0.5) * 40;
+    particlePositions[i * 3 + 1] = -40 + (Math.random() - 0.5) * 20;
+    particlePositions[i * 3 + 2] = 0;
+
+    const angle = (Math.random() * Math.PI) - Math.PI / 2;
+    const speed = 40 + Math.random() * 80;
+    particleVelocities[i] = {
+      x: Math.cos(angle) * speed,
+      y: Math.abs(Math.sin(angle)) * speed + 20,
+      vy: Math.abs(Math.sin(angle)) * speed + 20,
+      gravity: -60 - Math.random() * 40,
+    };
+
+    const c = goldColors[Math.floor(Math.random() * goldColors.length)];
+    particleColors[i * 3]     = c[0];
+    particleColors[i * 3 + 1] = c[1];
+    particleColors[i * 3 + 2] = c[2];
+  }
+
+  particleGeo.attributes.position.needsUpdate = true;
+  particleGeo.attributes.color.needsUpdate = true;
+}
+
+// --- ANIM_FLASH map ---
 const ANIM_FLASH = {
-  celebrate: () => triggerFlash(1.0, 0.8, 0.0, 0.5, 2.5),
+  celebrate: () => {
+    triggerFlash(1.0, 0.8, 0.0, 0.5, 2.5);
+    burstParticles();
+  },
   alarmed:   () => triggerFlash(1.0, 0.1, 0.1, 0.4, 3.0),
   facepalm:  () => triggerFlash(0.8, 0.0, 0.0, 0.5, 2.0),
   wave:      () => triggerFlash(0.4, 0.8, 1.0, 0.3, 2.0),
@@ -140,6 +206,25 @@ function animate(time) {
   if (flashMesh && flashIntensity > 0) {
     flashIntensity = Math.max(0, flashIntensity - delta * flashDecay);
     flashMesh.material.uniforms.flashIntensity.value = flashIntensity;
+  }
+
+  // Update particles
+  if (particleLifetime > 0) {
+    particleLifetime -= delta;
+    particleMat.opacity = Math.max(0, particleLifetime / PARTICLE_DURATION);
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const v = particleVelocities[i];
+      if (!v) continue;
+      particlePositions[i * 3]     += v.x * delta;
+      particlePositions[i * 3 + 1] += v.vy * delta;
+      v.vy += v.gravity * delta;
+    }
+    particleGeo.attributes.position.needsUpdate = true;
+
+    if (particleLifetime <= 0) {
+      particles.visible = false;
+    }
   }
 
   // Advance animation frame
