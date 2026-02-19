@@ -46,15 +46,15 @@ function startPolling() {
       if (event === 'SessionEnd') {
         tracker.remove(session_id);
       } else {
-        // On SessionStart, deduplicate: if exactly one other session is warm (not hot),
-        // it's likely the same window resuming with a new session ID — replace it.
+        // On SessionStart, deduplicate: if exactly one other session was seen
+        // within the last 5s, it's likely the same window transitioning to a
+        // resumed session (e.g. /resume in Claude Code) — replace it.
         if (event === 'SessionStart') {
           const existing = tracker.entries();
           const isNew = !existing.some(([id]) => id === session_id);
           if (isNew && existing.length === 1) {
             const [oldId, oldTime] = existing[0];
-            const age = now - oldTime;
-            if (age >= HOT_MS && age < WARM_MS) {
+            if ((now - oldTime) < 5000) {
               tracker.remove(oldId);
             }
           }
