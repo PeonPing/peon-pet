@@ -103,6 +103,42 @@ describe('createSessionTracker', () => {
     const entries = tracker.entries();
     expect(entries.length).toBe(2);
   });
+
+  test('remove() deletes a tracked session', () => {
+    const tracker = createSessionTracker();
+    const id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    tracker.update(id, 1000);
+    tracker.remove(id);
+    expect(tracker.size()).toBe(0);
+  });
+
+  test('remove() only removes the specified session', () => {
+    const tracker = createSessionTracker();
+    const id1 = 'a1b2c3d4-e5f6-7890-abcd-000000000001';
+    const id2 = 'a1b2c3d4-e5f6-7890-abcd-000000000002';
+    tracker.update(id1, 1000);
+    tracker.update(id2, 2000);
+    tracker.remove(id1);
+    expect(tracker.size()).toBe(1);
+    expect(tracker.entries()[0][0]).toBe(id2);
+  });
+
+  test('remove() on unknown id is a no-op', () => {
+    const tracker = createSessionTracker();
+    const id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    tracker.update(id, 1000);
+    tracker.remove('a1b2c3d4-e5f6-7890-abcd-000000000099');
+    expect(tracker.size()).toBe(1);
+  });
+
+  test('remove() makes session disappear from buildSessionStates', () => {
+    const tracker = createSessionTracker();
+    const id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    tracker.update(id, 1000);
+    tracker.remove(id);
+    const states = buildSessionStates(tracker.entries(), 1000, 30000, 120000, 5);
+    expect(states.length).toBe(0);
+  });
 });
 
 // ─── buildSessionStates ───────────────────────────────────────────────────────
@@ -194,8 +230,8 @@ describe('EVENT_TO_ANIM', () => {
     expect(EVENT_TO_ANIM['SessionStart']).toBe('waking');
   });
 
-  test('Stop maps to typing', () => {
-    expect(EVENT_TO_ANIM['Stop']).toBe('typing');
+  test('Stop maps to celebrate', () => {
+    expect(EVENT_TO_ANIM['Stop']).toBe('celebrate');
   });
 
   test('UserPromptSubmit maps to typing', () => {
@@ -206,8 +242,8 @@ describe('EVENT_TO_ANIM', () => {
     expect(EVENT_TO_ANIM['PermissionRequest']).toBe('alarmed');
   });
 
-  test('PostToolUseFailure maps to alarmed', () => {
-    expect(EVENT_TO_ANIM['PostToolUseFailure']).toBe('alarmed');
+  test('PostToolUseFailure maps to annoyed', () => {
+    expect(EVENT_TO_ANIM['PostToolUseFailure']).toBe('annoyed');
   });
 
   test('PreCompact maps to alarmed', () => {
