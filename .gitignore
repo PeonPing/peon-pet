@@ -1,3 +1,5 @@
 node_modules/
 dist/
 *.log
+# Raw generation artifacts (intermediate files from sprite/image generation)
+2026-*-*-*.png

@@ -1,66 +1,87 @@
-# peon-ping-avatar
+# peon-pet
 
-Always-on-top Peon character desktop widget that reacts to peon-ping events with sprite animations and WebGL effects.
+A macOS desktop pet that watches your Claude Code sessions and reacts with orc sprite animations. Built on Electron + Three.js.
+
+![orc sleeping in bottom-right corner of screen]
 
 ## Requirements
 
 - macOS (Linux/Windows untested)
 - Node.js 18+
-- peon-ping installed: https://peonping.com
+- [peon-ping](https://peonping.com) installed and running
 
-## Install
+## Quick start
 
 ```bash
-git clone <repo> peon-ping-avatar
-cd peon-ping-avatar
+git clone <repo> peon-pet
+cd peon-pet
 npm install
-node scripts/gen-placeholder-atlas.js
-```
-
-## Run
-
-```bash
 npm start
 ```
 
-The Peon appears in the bottom-right corner of your screen. It floats over all windows and ignores mouse clicks.
+The orc appears in the bottom-right corner of your screen, floats over all windows, and ignores mouse clicks. Check your dock for the orc icon — right-click it for controls.
 
-## Real sprite art
-
-See `docs/sprite-art-guide.md` for creating the real Peon pixel art atlas.
-Replace `renderer/assets/peon-atlas.png` — no code changes needed.
-
-## Auto-start on login (macOS)
+## Install permanently (auto-start at login)
 
 ```bash
-bash scripts/install-autostart.sh
+./install.sh
 ```
 
-## Events
+This installs a macOS LaunchAgent that starts peon-pet at login and restarts it automatically if it quits. Logs go to `/tmp/peon-pet.log`.
 
-| peon-ping event | Animation | Effect |
-|---|---|---|
-| Task complete (Stop) | Celebrate — jump | Gold flash + confetti burst |
-| Permission needed (PermissionRequest) | Alarmed — arms up | Red flash |
-| Tool error (PostToolUseFailure) | Facepalm — slump | Dark red flash |
-| Session start (SessionStart) | Wave | Blue glow |
-| Repeated prompts (UserPromptSubmit spam) | Annoyed — arms crossed | Orange flash + screen shake |
-| Context limit (PreCompact) | Alarmed — arms up | Red flash |
+To remove:
+
+```bash
+./uninstall.sh
+```
+
+## Dock controls
+
+Right-click the orc dock icon:
+
+- **Hide Pet** / **Show Pet** — toggle the widget without quitting
+- **Quit** — exit completely
+
+## Animations
+
+| Claude Code event | Animation |
+|---|---|
+| Session start | Waking up |
+| Prompt submit / task complete | Typing |
+| Permission request / tool failure / context limit | Alarmed |
+
+The orc stays in typing mode while any Claude Code session is actively working (event within last 30 s). Returns to sleeping after 30 s of inactivity.
+
+## Session dots
+
+Up to 5 glowing orbs appear above the orc — one per tracked Claude Code session:
+
+- **Bright pulsing green** — session active (event in last 30 s)
+- **Dim green** — session open but idle (last event 30 s–2 min ago)
+- **Hidden** — session gone cold
 
 ## Development
 
 ```bash
-npm run dev
+npm run dev    # starts with DevTools detached
+npm test       # runs Jest test suite (59 tests)
 ```
 
-Opens with DevTools detached. Simulate events by writing to the state file:
+Simulate an event by writing to the peon-ping state file:
 
 ```bash
 python3 -c "
-import json, time, os
+import json, time, os, uuid
 f = os.path.expanduser('~/.claude/hooks/peon-ping/.state.json')
-state = json.load(open(f))
-state['last_active'] = {'session_id': 'test', 'pack': 'peon', 'timestamp': time.time(), 'event': 'Stop'}
+try: state = json.load(open(f))
+except: state = {}
+state['last_active'] = {
+  'session_id': str(uuid.uuid4()),
+  'timestamp': time.time(),
+  'event': 'PermissionRequest'
+}
 json.dump(state, open(f, 'w'))
 "
 ```
+
+Valid events: `SessionStart`, `Stop`, `UserPromptSubmit`, `PermissionRequest`, `PostToolUseFailure`, `PreCompact`
