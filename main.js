@@ -43,7 +43,11 @@ function startPolling() {
     const now = Date.now();
 
     if (isValidSessionId(session_id)) {
-      tracker.update(session_id, now);
+      if (event === 'SessionEnd') {
+        tracker.remove(session_id);
+      } else {
+        tracker.update(session_id, now);
+      }
       tracker.prune(now - SESSION_PRUNE_MS);
     }
 
