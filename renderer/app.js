@@ -2,13 +2,15 @@ import * as THREE from '../node_modules/three/build/three.module.js';
 
 // --- Config ---
 const ATLAS_COLS = 6;
-const ATLAS_ROWS = 4;
+const ATLAS_ROWS = 6;
 
 const ANIM_CONFIG = {
-  sleeping: { row: 0, frames: 6, fps: 3,  loop: true  },
-  waking:   { row: 1, frames: 6, fps: 8,  loop: false },
-  typing:   { row: 2, frames: 6, fps: 8,  loop: false },
-  alarmed:  { row: 3, frames: 6, fps: 8,  loop: false },
+  sleeping:  { row: 0, frames: 6, fps: 3,  loop: true  },
+  waking:    { row: 1, frames: 6, fps: 8,  loop: false },
+  typing:    { row: 2, frames: 6, fps: 8,  loop: false },
+  alarmed:   { row: 3, frames: 6, fps: 8,  loop: false },
+  celebrate: { row: 4, frames: 6, fps: 8,  loop: false },
+  annoyed:   { row: 5, frames: 6, fps: 8,  loop: false },
 };
 
 // --- Scene setup ---
