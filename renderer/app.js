@@ -6,7 +6,7 @@ const ATLAS_ROWS = 6;
 
 const ANIM_CONFIG = {
   sleeping:  { row: 0, frames: 6, fps: 3,  loop: true  },
-  waking:    { row: 1, frames: 6, fps: 8,  loop: false },
+  waking:    { row: 1, frames: 6, fps: 2,  loop: false, loops: 1 },
   typing:    { row: 2, frames: 6, fps: 8,  loop: false },
   alarmed:   { row: 3, frames: 6, fps: 8,  loop: false },
   celebrate: { row: 4, frames: 6, fps: 8,  loop: false },
@@ -262,9 +262,10 @@ function triggerShake(intensity = 12) {
 
 // --- ANIM_FLASH map ---
 const ANIM_FLASH = {
-  waking:  () => triggerFlash(0.4, 0.8, 1.0, 0.3, 2.0),
-  typing:  () => triggerFlash(1.0, 0.8, 0.0, 0.3, 2.0),
-  alarmed: () => triggerFlash(1.0, 0.1, 0.1, 0.5, 2.5),
+  waking:    () => triggerFlash(0.4, 0.8, 1.0, 0.3, 2.0),
+  alarmed:   () => triggerFlash(1.0, 0.1, 0.1, 0.5, 2.5),
+  celebrate: () => triggerFlash(1.0, 0.8, 0.0, 0.5, 2.0),
+  annoyed:   () => triggerFlash(0.8, 0.4, 0.0, 0.3, 2.0),
 };
 
 // --- Animation state machine ---
@@ -306,7 +307,8 @@ function playAnim(animName) {
   currentAnim = animName;
   currentFrame = 0;
   frameTimer = 0;
-  remainingLoops = (animName !== 'sleeping') ? REACTION_LOOPS - 1 : 0;
+  const loops = ANIM_CONFIG[animName].loops ?? REACTION_LOOPS;
+  remainingLoops = (animName !== 'sleeping') ? loops - 1 : 0;
   setFrame(animName, 0);
   if (ANIM_FLASH[animName]) {
     ANIM_FLASH[animName]();
@@ -322,6 +324,8 @@ playAnim('sleeping');
 let anySessionActive = false;
 
 window.peonBridge.onEvent(({ anim }) => {
+  // Don't wake if already active — only wake from sleep
+  if (anim === 'waking' && currentAnim !== 'sleeping') return;
   playAnim(anim);
 });
 

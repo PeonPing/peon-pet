@@ -125,5 +125,11 @@ function createWindow() {
 }
 
 app.setName('Peon Pet');
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => app.quit());
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.whenReady().then(createWindow);
+  app.on('window-all-closed', () => app.quit());
+}
