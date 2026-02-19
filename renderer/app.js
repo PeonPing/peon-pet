@@ -361,7 +361,7 @@ canvas.addEventListener('mousemove', (e) => {
       const names = currentSessions
         .map(s => s.cwd ? s.cwd.split('/').filter(Boolean).pop() : null)
         .filter(Boolean);
-      html = names.length ? names.join(', ') : `${active}/${total} sessions`;
+      html = names.length ? names.join('<br>') : `${active}/${total} sessions`;
     }
   }
   tooltip.innerHTML = html;

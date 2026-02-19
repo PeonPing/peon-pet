@@ -63,7 +63,7 @@ Up to 10 glowing orbs appear above the orc — one per tracked Claude Code sessi
 
 Sessions are removed when Claude Code fires `SessionEnd`, or automatically after 10 min of inactivity.
 
-Hover over a dot to see its session ID and status. Hover anywhere on the widget for a session count summary.
+Hover over a dot to see the project folder and status. Hover anywhere on the widget to see all active project names.
 
 ## Development
 
