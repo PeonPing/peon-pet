@@ -53,12 +53,17 @@ function startPolling() {
 
     if (win && !win.isDestroyed()) {
       const now = Date.now();
-      const ACTIVE_MS = 30000;
+      const HOT_MS  = 30 * 1000;       // 30s  — actively working right now
+      const WARM_MS = 5 * 60 * 1000;  // 5min — session open but idle
       const sessions = [...sessionActivity.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
-        .map(([id, t]) => ({ id, active: (now - t) < ACTIVE_MS }));
-      win.webContents.send('session-update', sessions);
+        .map(([id, t]) => ({
+          id,
+          hot:  (now - t) < HOT_MS,
+          warm: (now - t) < WARM_MS,
+        }));
+      win.webContents.send('session-update', { sessions });
     }
 
     const anim = EVENT_TO_ANIM[event];
@@ -73,15 +78,16 @@ function createWindow() {
 
   win = new BrowserWindow({
     width: 200,
-    height: 230,
+    height: 200,
     x: width - 220,
-    y: height - 250,
+    y: height - 220,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
     focusable: false,
+    hasShadow: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

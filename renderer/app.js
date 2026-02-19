@@ -18,14 +18,23 @@ const renderer = new THREE.WebGLRenderer({
   alpha: true,
   antialias: false,
 });
-renderer.setSize(200, 230);
+renderer.setSize(200, 200);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setClearColor(0x000000, 0);
 
 const scene = new THREE.Scene();
 
-const camera = new THREE.OrthographicCamera(-100, 100, 115, -115, 0.1, 10);
+const camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 10);
 camera.position.z = 1;
+
+// --- Background ---
+const bgTex = new THREE.TextureLoader().load('./assets/bg-pixel.png');
+const bgMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(180, 180),
+  new THREE.MeshBasicMaterial({ map: bgTex, color: 0x888888 })
+);
+bgMesh.position.z = -0.5;
+scene.add(bgMesh);
 
 // --- Sprite mesh ---
 const loader = new THREE.TextureLoader();
@@ -33,11 +42,11 @@ const atlas = loader.load('./assets/orc-sprite-atlas.png', () => {
   atlas.magFilter = THREE.NearestFilter;
   atlas.minFilter = THREE.NearestFilter;
   atlas.generateMipmaps = false;
+  atlas.needsUpdate = true;
 });
 
-atlas.repeat.set(1 / ATLAS_COLS, 1 / ATLAS_ROWS);
-
-const geometry = new THREE.PlaneGeometry(160, 160);
+// Square sprite — fills most of the 200×200 window
+const geometry = new THREE.PlaneGeometry(180, 180);
 const material = new THREE.MeshBasicMaterial({
   map: atlas,
   transparent: true,
@@ -45,7 +54,7 @@ const material = new THREE.MeshBasicMaterial({
 });
 const sprite = new THREE.Mesh(geometry, material);
 scene.add(sprite);
-sprite.position.y = -15;
+sprite.position.y = 0;
 
 // --- Flash overlay ---
 async function loadShader(url) {
@@ -73,7 +82,7 @@ async function setupFlash() {
     depthTest: false,
   });
 
-  const flashGeo = new THREE.PlaneGeometry(200, 230);
+  const flashGeo = new THREE.PlaneGeometry(200, 200);
   flashMesh = new THREE.Mesh(flashGeo, flashMat);
   flashMesh.position.z = 0.5;
   scene.add(flashMesh);
@@ -81,23 +90,72 @@ async function setupFlash() {
 
 setupFlash();
 
-// --- Session dots ---
+// --- Border overlay ---
+const borderTex = loader.load('./assets/orc-borders.png', () => {
+  borderTex.magFilter = THREE.NearestFilter;
+  borderTex.minFilter = THREE.NearestFilter;
+  borderTex.needsUpdate = true;
+});
+const borderMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(200, 200),
+  new THREE.MeshBasicMaterial({ map: borderTex, transparent: true, depthTest: false })
+);
+borderMesh.position.z = 0.4;
+scene.add(borderMesh);
+
+// --- Session dots (glowing orbs) ---
 const MAX_DOTS = 5;
-const DOT_SIZE = 10;
-const DOT_GAP = 4;
-const DOT_Y = 105;
+const DOT_SIZE = 12;
+const DOT_GAP  = 6;
+const DOT_Y    = 88;
+
+const DOT_VERT = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const DOT_FRAG = `
+  uniform vec3  dotColor;
+  uniform float pulse;   // 0..1 animated for active, 0 for idle
+  uniform float visible; // 0 or 1
+  varying vec2 vUv;
+  void main() {
+    if (visible < 0.5) discard;
+    vec2  c    = vUv - 0.5;
+    float dist = length(c);
+    // Soft core
+    float core = 1.0 - smoothstep(0.20, 0.32, dist);
+    // Outer glow ring — only for active
+    float glow = (1.0 - smoothstep(0.32, 0.50, dist)) * pulse * 0.6;
+    float alpha = core + glow;
+    if (alpha < 0.01) discard;
+    vec3 col = dotColor + dotColor * pulse * 0.5;
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
 
 const dotMeshes = [];
-const DOT_COLOR_ACTIVE = new THREE.Color(0x44ff44);
-const DOT_COLOR_IDLE   = new THREE.Color(0x666666);
+const dotStates = [];  // { active: bool }
 
 for (let i = 0; i < MAX_DOTS; i++) {
-  const geo = new THREE.PlaneGeometry(DOT_SIZE, DOT_SIZE);
-  const mat = new THREE.MeshBasicMaterial({ color: DOT_COLOR_IDLE.clone(), transparent: true, opacity: 0 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.z = 0.3;
+  const mat = new THREE.ShaderMaterial({
+    vertexShader:   DOT_VERT,
+    fragmentShader: DOT_FRAG,
+    uniforms: {
+      dotColor: { value: new THREE.Color(0x666666) },
+      pulse:    { value: 0.0 },
+      visible:  { value: 0.0 },
+    },
+    transparent: true,
+    depthTest: false,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(DOT_SIZE, DOT_SIZE), mat);
+  mesh.position.z = 0.6;
   scene.add(mesh);
   dotMeshes.push(mesh);
+  dotStates.push({ active: false });
 }
 
 function updateDots(sessions) {
@@ -107,15 +165,19 @@ function updateDots(sessions) {
 
   for (let i = 0; i < MAX_DOTS; i++) {
     const mesh = dotMeshes[i];
+    const u    = mesh.material.uniforms;
     if (i < count) {
+      const { hot, warm } = sessions[i];
+      dotStates[i].active = hot;
       mesh.position.x = startX + i * (DOT_SIZE + DOT_GAP);
       mesh.position.y = DOT_Y;
-      mesh.material.color.copy(sessions[i].active ? DOT_COLOR_ACTIVE : DOT_COLOR_IDLE);
-      mesh.material.opacity = 1;
+      // hot = bright green pulsing, warm = dim green static, else grey
+      u.dotColor.value.set(hot ? 0x44ff44 : warm ? 0x1a4d1a : 0x333333);
+      u.visible.value = 1.0;
     } else {
-      mesh.material.opacity = 0;
+      dotStates[i].active = false;
+      u.visible.value = 0.0;
     }
-    mesh.material.needsUpdate = true;
   }
 }
 
@@ -208,22 +270,32 @@ let currentAnim = 'idle';
 let currentFrame = 0;
 let frameTimer = 0;
 let pendingIdle = false;
+let remainingLoops = 0;  // extra replays for non-sleeping anims
+const REACTION_LOOPS = 3;  // play reaction animations 3x before sleeping
 let idleTimer = null;
 const IDLE_TIMEOUT_MS = 30000;
 
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    playAnim('sleeping');
+    if (!anySessionActive) playAnim('sleeping');
   }, IDLE_TIMEOUT_MS);
 }
 
 function setFrame(animName, frame) {
   const { row } = ANIM_CONFIG[animName];
-  atlas.offset.set(
-    frame / ATLAS_COLS,
-    (ATLAS_ROWS - 1 - row) / ATLAS_ROWS
-  );
+  // UV coords: u left→right, v bottom=0/top=1 (Three.js convention)
+  const u0 = frame / ATLAS_COLS;
+  const u1 = (frame + 1) / ATLAS_COLS;
+  const v0 = (ATLAS_ROWS - 1 - row) / ATLAS_ROWS;  // bottom of this row
+  const v1 = (ATLAS_ROWS - row) / ATLAS_ROWS;       // top of this row
+  // PlaneGeometry vertex UV order: [0]=TL, [1]=TR, [2]=BL, [3]=BR
+  const uv = geometry.attributes.uv;
+  uv.setXY(0, u0, v1); // TL
+  uv.setXY(1, u1, v1); // TR
+  uv.setXY(2, u0, v0); // BL
+  uv.setXY(3, u1, v0); // BR
+  uv.needsUpdate = true;
 }
 
 function playAnim(animName) {
@@ -232,6 +304,7 @@ function playAnim(animName) {
   currentAnim = animName;
   currentFrame = 0;
   frameTimer = 0;
+  remainingLoops = (animName !== 'sleeping') ? REACTION_LOOPS - 1 : 0;
   setFrame(animName, 0);
   if (ANIM_FLASH[animName]) {
     ANIM_FLASH[animName]();
@@ -244,12 +317,20 @@ function playAnim(animName) {
 playAnim('sleeping');
 
 // --- IPC events ---
+let anySessionActive = false;
+
 window.peonBridge.onEvent(({ anim }) => {
   playAnim(anim);
 });
 
-window.peonBridge.onSessionUpdate((sessions) => {
+window.peonBridge.onSessionUpdate(({ sessions }) => {
   updateDots(sessions);
+  const wasActive = anySessionActive;
+  anySessionActive = sessions.some(s => s.hot);
+  // If a session just became hot and orc is sleeping, wake him to typing
+  if (anySessionActive && !wasActive && currentAnim === 'sleeping') {
+    playAnim('typing');
+  }
 });
 
 // --- Render loop ---
@@ -258,6 +339,15 @@ function animate(time) {
   requestAnimationFrame(animate);
   const delta = Math.min((time - lastTime) / 1000, 0.1);
   lastTime = time;
+
+  // Animate dot pulse
+  for (let i = 0; i < MAX_DOTS; i++) {
+    if (dotStates[i].active) {
+      dotMeshes[i].material.uniforms.pulse.value = (Math.sin(time * 0.003 + i) + 1) / 2;
+    } else {
+      dotMeshes[i].material.uniforms.pulse.value = 0.0;
+    }
+  }
 
   // Decay flash
   if (flashMesh && flashIntensity > 0) {
@@ -294,13 +384,23 @@ function animate(time) {
       if (cfg.loop) {
         currentFrame = 0;
       } else {
-        currentFrame = cfg.frames - 1;
-        if (!pendingIdle) {
-          pendingIdle = true;
-          setTimeout(() => {
-            pendingIdle = false;
-            playAnim('sleeping');
-          }, 300);
+        if (remainingLoops > 0) {
+          remainingLoops--;
+          currentFrame = 0;
+        } else {
+          currentFrame = cfg.frames - 1;
+          if (!pendingIdle) {
+            pendingIdle = true;
+            setTimeout(() => {
+              pendingIdle = false;
+              // Keep typing if any session is still hot
+              if (anySessionActive) {
+                playAnim('typing');
+              } else {
+                playAnim('sleeping');
+              }
+            }, 300);
+          }
         }
       }
     }
@@ -314,7 +414,7 @@ function animate(time) {
     sprite.position.y = (Math.random() - 0.5) * shakeIntensity;
   } else {
     sprite.position.x = 0;
-    sprite.position.y = -15;
+    sprite.position.y = 0;
   }
 
   renderer.render(scene, camera);
