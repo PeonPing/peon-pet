@@ -1,35 +1,26 @@
-const { app, BrowserWindow, screen } = require('electron');
+const { app, BrowserWindow, screen, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const {
+  isValidSessionId,
+  createSessionTracker,
+  buildSessionStates,
+  EVENT_TO_ANIM,
+} = require('./lib/session-tracker');
 
 let win;
+let petVisible = true;
 
 // Path to peon-ping state file
 const STATE_FILE = path.join(os.homedir(), '.claude', 'hooks', 'peon-ping', '.state.json');
 
-// Map raw hook event names to avatar animation states
-const EVENT_TO_ANIM = {
-  SessionStart:       'waking',
-  Stop:               'typing',
-  UserPromptSubmit:   'typing',
-  PermissionRequest:  'alarmed',
-  PostToolUseFailure: 'alarmed',
-  PreCompact:         'alarmed',
-};
-
 let lastTimestamp = 0;
 
-const sessionActivity = new Map();
+const tracker = createSessionTracker();
 const SESSION_PRUNE_MS = 4 * 60 * 60 * 1000;
-
-function updateSessionActivity(sessionId) {
-  sessionActivity.set(sessionId, Date.now());
-  const cutoff = Date.now() - SESSION_PRUNE_MS;
-  for (const [id, t] of sessionActivity) {
-    if (t < cutoff) sessionActivity.delete(id);
-  }
-}
+const HOT_MS  = 30 * 1000;       // 30s  — actively working right now
+const WARM_MS = 2 * 60 * 1000;   // 2min — session open but idle
 
 function readStateFile() {
   try {
@@ -49,20 +40,15 @@ function startPolling() {
     if (timestamp === lastTimestamp) return;
     lastTimestamp = timestamp;
 
-    if (session_id) updateSessionActivity(session_id);
+    const now = Date.now();
+
+    if (isValidSessionId(session_id)) {
+      tracker.update(session_id, now);
+      tracker.prune(now - SESSION_PRUNE_MS);
+    }
 
     if (win && !win.isDestroyed()) {
-      const now = Date.now();
-      const HOT_MS  = 30 * 1000;       // 30s  — actively working right now
-      const WARM_MS = 5 * 60 * 1000;  // 5min — session open but idle
-      const sessions = [...sessionActivity.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([id, t]) => ({
-          id,
-          hot:  (now - t) < HOT_MS,
-          warm: (now - t) < WARM_MS,
-        }));
+      const sessions = buildSessionStates(tracker.entries(), now, HOT_MS, WARM_MS, 5);
       win.webContents.send('session-update', { sessions });
     }
 
@@ -71,6 +57,31 @@ function startPolling() {
       win.webContents.send('peon-event', { anim, event });
     }
   }, 200);
+}
+
+function buildDockMenu() {
+  return Menu.buildFromTemplate([
+    {
+      label: petVisible ? 'Hide Pet' : 'Show Pet',
+      click() {
+        if (!win || win.isDestroyed()) return;
+        if (petVisible) {
+          win.hide();
+        } else {
+          win.show();
+        }
+        petVisible = !petVisible;
+        app.dock.setMenu(buildDockMenu());
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click() {
+        app.quit();
+      },
+    },
+  ]);
 }
 
 function createWindow() {
@@ -97,11 +108,13 @@ function createWindow() {
 
   win.setIgnoreMouseEvents(true);
 
-  if (process.platform === 'darwin') {
-    app.dock.hide();
-  }
-
   win.loadFile('renderer/index.html');
+
+  if (process.platform === 'darwin') {
+    const iconPath = path.join(__dirname, 'renderer', 'assets', 'orc-dock-icon.png');
+    app.dock.setIcon(iconPath);
+    app.dock.setMenu(buildDockMenu());
+  }
 
   if (process.argv.includes('--dev')) {
     win.webContents.openDevTools({ mode: 'detach' });
