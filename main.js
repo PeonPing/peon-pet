@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, Menu } = require('electron');
+const { app, BrowserWindow, screen, Menu, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -11,6 +11,43 @@ const {
 
 let win;
 let petVisible = true;
+
+// --- Character system ---
+// Canonical asset names → orc bundled filenames
+const ORC_FILE_MAP = {
+  'sprite-atlas.png': 'orc-sprite-atlas.png',
+  'borders.png':      'orc-borders.png',
+  'bg.png':           'bg-pixel.png',
+  'dock-icon.png':    'orc-dock-icon.png',
+};
+
+function loadPetConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(
+      path.join(app.getPath('userData'), 'peon-pet-config.json'), 'utf8'
+    ));
+  } catch { return {}; }
+}
+
+function registerCharacterProtocol() {
+  const cfg = loadPetConfig();
+  const char = cfg.character || 'orc';
+  const orcAssetsDir = path.join(__dirname, 'renderer', 'assets');
+  const customCharDir = path.join(app.getPath('userData'), 'characters', char);
+
+  protocol.handle('peon-asset', (request) => {
+    const filename = new URL(request.url).hostname;
+    // For custom character: try custom dir first, fall back to orc
+    if (char !== 'orc' && fs.existsSync(path.join(customCharDir, filename))) {
+      return net.fetch('file://' + path.join(customCharDir, filename));
+    }
+    // Default orc: map canonical → actual filename
+    const orcFile = ORC_FILE_MAP[filename] || filename;
+    return net.fetch('file://' + path.join(orcAssetsDir, orcFile));
+  });
+
+  return { char, orcAssetsDir, customCharDir };
+}
 
 // Path to peon-ping state file
 const STATE_FILE = path.join(os.homedir(), '.claude', 'hooks', 'peon-ping', '.state.json');
@@ -152,7 +189,12 @@ function createWindow() {
   win.loadFile('renderer/index.html');
 
   if (process.platform === 'darwin') {
-    const iconPath = path.join(__dirname, 'renderer', 'assets', 'orc-dock-icon.png');
+    const cfg = loadPetConfig();
+    const char = cfg.character || 'orc';
+    const customIcon = path.join(app.getPath('userData'), 'characters', char, 'dock-icon.png');
+    const iconPath = (char !== 'orc' && fs.existsSync(customIcon))
+      ? customIcon
+      : path.join(__dirname, 'renderer', 'assets', 'orc-dock-icon.png');
     app.dock.setIcon(iconPath);
     app.dock.setMenu(buildDockMenu());
   }
@@ -174,6 +216,9 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.whenReady().then(createWindow);
+  app.whenReady().then(() => {
+    registerCharacterProtocol();
+    createWindow();
+  });
   app.on('window-all-closed', () => app.quit());
 }

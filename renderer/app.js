@@ -30,7 +30,7 @@ const camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 10);
 camera.position.z = 1;
 
 // --- Background ---
-const bgTex = new THREE.TextureLoader().load('./assets/bg-pixel.png');
+const bgTex = new THREE.TextureLoader().load('peon-asset://bg.png');
 const bgMesh = new THREE.Mesh(
   new THREE.PlaneGeometry(180, 180),
   new THREE.MeshBasicMaterial({ map: bgTex, color: 0x888888 })
@@ -40,7 +40,7 @@ scene.add(bgMesh);
 
 // --- Sprite mesh ---
 const loader = new THREE.TextureLoader();
-const atlas = loader.load('./assets/orc-sprite-atlas.png', () => {
+const atlas = loader.load('peon-asset://sprite-atlas.png', () => {
   atlas.magFilter = THREE.NearestFilter;
   atlas.minFilter = THREE.NearestFilter;
   atlas.generateMipmaps = false;
@@ -93,7 +93,7 @@ async function setupFlash() {
 setupFlash();
 
 // --- Border overlay ---
-const borderTex = loader.load('./assets/orc-borders.png', () => {
+const borderTex = loader.load('peon-asset://borders.png', () => {
   borderTex.magFilter = THREE.NearestFilter;
   borderTex.minFilter = THREE.NearestFilter;
   borderTex.needsUpdate = true;
