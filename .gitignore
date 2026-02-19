@@ -3,3 +3,6 @@ dist/
 *.log
 # Raw generation artifacts (intermediate files from sprite/image generation)
 2026-*-*-*.png
+
+# Scratch planning docs (AI-generated session artifacts)
+docs/plans/
