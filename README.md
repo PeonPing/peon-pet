@@ -1,6 +1,6 @@
 # peon-pet
 
-A macOS desktop pet that watches your Claude Code sessions and reacts with orc sprite animations. Built on Electron + Three.js.
+A macOS desktop pet for [Peon-Ping](https://peonping.com) — an orc that reacts to your Peon-Ping events with sprite animations. Built on Electron + Three.js.
 
 ![orc sleeping in bottom-right corner of screen]
 
@@ -20,6 +20,8 @@ npm start
 ```
 
 The orc appears in the bottom-right corner of your screen, floats over all windows, and ignores mouse clicks. Check your dock for the orc icon — right-click it for controls.
+
+Requires Peon-Ping to be installed and running — peon-pet reads from the Peon-Ping state file to know what's happening.
 
 ## Install permanently (auto-start at login)
 
@@ -44,17 +46,17 @@ Right-click the orc dock icon:
 
 ## Animations
 
-| Claude Code event | Animation |
+| Peon-Ping event | Animation |
 |---|---|
 | Session start | Waking up |
 | Prompt submit / task complete | Typing |
 | Permission request / tool failure / context limit | Alarmed |
 
-The orc stays in typing mode while any Claude Code session is actively working (event within last 30 s). Returns to sleeping after 30 s of inactivity.
+The orc stays in typing mode while any Peon-Ping session is actively working (event within last 30 s). Returns to sleeping after 30 s of inactivity.
 
 ## Session dots
 
-Up to 5 glowing orbs appear above the orc — one per tracked Claude Code session:
+Up to 5 glowing orbs appear above the orc — one per tracked Peon-Ping session:
 
 - **Bright pulsing green** — session active (event in last 30 s)
 - **Dim green** — session open but idle (last event 30 s–2 min ago)

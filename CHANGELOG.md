@@ -2,7 +2,7 @@
 
 ## [1.0.0-alpha] - 2026-02-18
 
-First working release of peon-pet.
+First working release of peon-pet — a desktop pet for [Peon-Ping](https://peonping.com).
 
 ### Added
 
