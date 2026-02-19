@@ -1,5 +1,6 @@
 {
   "name": "peon-pet",
+  "productName": "Peon Pet",
   "version": "1.0.0-alpha.1",
   "description": "Desktop pet for Peon-Ping — an orc that reacts to peon-ping events",
   "main": "main.js",
