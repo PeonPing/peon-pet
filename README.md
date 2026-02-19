@@ -2,6 +2,8 @@
 
 A macOS desktop pet for [Peon-Ping](https://peonping.com) — an orc that reacts to your Claude Code events with sprite animations. Built on Electron + Three.js.
 
+<video src="docs/demo.mp4" autoplay loop muted playsinline width="400"></video>
+
 Sits in the bottom-left corner of your screen, floats over all windows, and ignores mouse clicks (hover for tooltips).
 
 ## Requirements
