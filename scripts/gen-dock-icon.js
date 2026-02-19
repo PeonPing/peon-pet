@@ -1,13 +1,12 @@
 // Generates orc-dock-icon.png from frame 0, row 0 of orc-sprite-atlas.png.
-// Atlas: 2816×1536px, 6 columns × 4 rows.
-// Crops the top-left cell (sleeping orc face) and scales it to 256×256px.
+// Atlas: 6 columns × 6 rows. Crops the top-left cell (sleeping orc) and scales to 256×256px.
 
 const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const path = require('path');
 
 const ATLAS_COLS = 6;
-const ATLAS_ROWS = 4;
+const ATLAS_ROWS = 6;
 const OUT_SIZE = 256;
 
 const atlasPath = path.join(__dirname, '../renderer/assets/orc-sprite-atlas.png');

@@ -8,10 +8,26 @@
     * { margin: 0; padding: 0; }
     html, body { width: 200px; height: 200px; overflow: hidden; background: transparent; }
     canvas { display: block; }
+    #tooltip {
+      position: absolute;
+      display: none;
+      background: rgba(8, 8, 16, 0.88);
+      color: #bbb;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 10px;
+      line-height: 1.5;
+      padding: 3px 7px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 100;
+    }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
+  <div id="tooltip"></div>
   <script type="module" src="app.js"></script>
 </body>
 </html>

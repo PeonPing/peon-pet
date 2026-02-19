@@ -320,6 +320,60 @@ function playAnim(animName) {
 
 playAnim('sleeping');
 
+// --- Tooltip ---
+const tooltip = document.getElementById('tooltip');
+let currentSessions = [];
+
+function hitTestDots(px, py) {
+  const count = Math.min(currentSessions.length, MAX_DOTS);
+  if (count === 0) return -1;
+  const totalWidth = count * DOT_SIZE + Math.max(0, count - 1) * DOT_GAP;
+  const startThreeX = -totalWidth / 2 + DOT_SIZE / 2;
+  const dotCanvasY = 100 - DOT_Y;  // Three.js DOT_Y=88 → canvas pixel y=12
+  const HIT_R = DOT_SIZE;           // slightly wider than visual for easier hover
+  for (let i = 0; i < count; i++) {
+    const dotCanvasX = startThreeX + i * (DOT_SIZE + DOT_GAP) + 100;
+    const dx = px - dotCanvasX;
+    const dy = py - dotCanvasY;
+    if (dx * dx + dy * dy < HIT_R * HIT_R) return i;
+  }
+  return -1;
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  const px = e.offsetX;
+  const py = e.offsetY;
+  const idx = hitTestDots(px, py);
+  let html;
+  if (idx >= 0) {
+    const s = currentSessions[idx];
+    const status = s.hot ? '<span style="color:#44ff44">active</span>'
+                         : s.warm ? '<span style="color:#1aaa1a">idle</span>'
+                         : '<span style="color:#555">cold</span>';
+    const short = s.id.slice(-8);
+    html = `\u2026${short} &bull; ${status}`;
+  } else {
+    const active = currentSessions.filter(s => s.hot).length;
+    const total  = currentSessions.length;
+    if (total === 0) {
+      html = 'Peon Pet';
+    } else {
+      html = `${active}/${total} session${total !== 1 ? 's' : ''}`;
+    }
+  }
+  tooltip.innerHTML = html;
+  tooltip.style.display = 'block';
+  // Position tooltip: prefer to the right/below cursor, clamped inside window
+  const tw = tooltip.offsetWidth;
+  const th = tooltip.offsetHeight;
+  tooltip.style.left = Math.min(px + 6, 200 - tw - 2) + 'px';
+  tooltip.style.top  = Math.min(py + 6, 200 - th - 2) + 'px';
+});
+
+canvas.addEventListener('mouseleave', () => {
+  tooltip.style.display = 'none';
+});
+
 // --- IPC events ---
 let anySessionActive = false;
 
@@ -330,6 +384,7 @@ window.peonBridge.onEvent(({ anim }) => {
 });
 
 window.peonBridge.onSessionUpdate(({ sessions }) => {
+  currentSessions = sessions;
   updateDots(sessions);
   const wasActive = anySessionActive;
   anySessionActive = sessions.some(s => s.hot);

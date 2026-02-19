@@ -27,11 +27,10 @@ FIXED SCENE (identical in every single frame — never changes):
 - Warm torchlight from the right side
 - Camera position NEVER moves between rows or frames
 
-ROW 1 — SLEEPING (frames 1-6): Orc dozing at desk.
-Frame 1: upright but eyes drooping. Frame 3: eyes closed, head nodding.
-Frame 5-6: head fully slumped onto arms on desk, mouth slightly open.
-Small "Z", "ZZ", "ZZZ" bubbles floating up from the orc in frames 3-6,
-getting larger each frame.
+ROW 1 — SLEEPING (frames 1-6): Orc fully asleep at desk in all 6 frames.
+Head slumped onto arms on the desk, mouth slightly open, eyes closed throughout.
+Z, ZZ, ZZZ speech bubbles floating upward, cycling larger and smaller across the frames
+to give a gentle breathing/snoring loop.
 
 ROW 2 — WAKING (frames 1-6): Orc startled awake.
 Frame 1: head down asleep, ZZZ bubble. Frame 3: eyes snapping open, head

@@ -18,7 +18,7 @@ const STATE_FILE = path.join(os.homedir(), '.claude', 'hooks', 'peon-ping', '.st
 let lastTimestamp = 0;
 
 const tracker = createSessionTracker();
-const SESSION_PRUNE_MS = 4 * 60 * 60 * 1000;
+const SESSION_PRUNE_MS = 10 * 60 * 1000;  // 10min — prune cold sessions
 const HOT_MS  = 30 * 1000;       // 30s  — actively working right now
 const WARM_MS = 2 * 60 * 1000;   // 2min — session open but idle
 
@@ -46,6 +46,19 @@ function startPolling() {
       if (event === 'SessionEnd') {
         tracker.remove(session_id);
       } else {
+        // On SessionStart, deduplicate: if exactly one other session is warm (not hot),
+        // it's likely the same window resuming with a new session ID — replace it.
+        if (event === 'SessionStart') {
+          const existing = tracker.entries();
+          const isNew = !existing.some(([id]) => id === session_id);
+          if (isNew && existing.length === 1) {
+            const [oldId, oldTime] = existing[0];
+            const age = now - oldTime;
+            if (age >= HOT_MS && age < WARM_MS) {
+              tracker.remove(oldId);
+            }
+          }
+        }
         tracker.update(session_id, now);
       }
       tracker.prune(now - SESSION_PRUNE_MS);
@@ -61,6 +74,19 @@ function startPolling() {
       win.webContents.send('peon-event', { anim, event });
     }
   }, 200);
+}
+
+// Poll cursor position to enable mouse events only when hovering the window.
+// This lets the renderer receive mousemove for tooltips while keeping click-through.
+function startMouseTracking() {
+  setInterval(() => {
+    if (!win || win.isDestroyed()) return;
+    const { x: cx, y: cy } = screen.getCursorScreenPoint();
+    const [wx, wy] = win.getPosition();
+    const [ww, wh] = win.getSize();
+    const inside = cx >= wx && cx <= wx + ww && cy >= wy && cy <= wy + wh;
+    win.setIgnoreMouseEvents(!inside);
+  }, 50);
 }
 
 function buildDockMenu() {
@@ -125,7 +151,10 @@ function createWindow() {
   }
 
   // Start polling once window is ready
-  win.webContents.once('did-finish-load', startPolling);
+  win.webContents.once('did-finish-load', () => {
+    startPolling();
+    startMouseTracking();
+  });
 }
 
 app.setName('Peon Pet');
