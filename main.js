@@ -111,5 +111,6 @@ function createWindow() {
   win.webContents.once('did-finish-load', startPolling);
 }
 
+app.setName('peon-pet');
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());

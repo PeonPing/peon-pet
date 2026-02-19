@@ -1,7 +1,7 @@
 {
-  "name": "peon-ping-avatar",
+  "name": "peon-pet",
   "version": "0.1.0",
-  "description": "Always-on-top Peon avatar that reacts to peon-ping events",
+  "description": "Desktop pet for Claude Code — an orc that reacts to peon-ping events",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
