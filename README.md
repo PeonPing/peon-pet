@@ -1,8 +1,8 @@
 # peon-pet
 
-A macOS desktop pet for [Peon-Ping](https://peonping.com) — an orc that reacts to your Peon-Ping events with sprite animations. Built on Electron + Three.js.
+A macOS desktop pet for [Peon-Ping](https://peonping.com) — an orc that reacts to your Claude Code events with sprite animations. Built on Electron + Three.js.
 
-![orc sleeping in bottom-right corner of screen]
+Sits in the bottom-left corner of your screen, floats over all windows, and ignores mouse clicks (hover for tooltips).
 
 ## Requirements
 
@@ -19,9 +19,7 @@ npm install
 npm start
 ```
 
-The orc appears in the bottom-right corner of your screen, floats over all windows, and ignores mouse clicks. Check your dock for the orc icon — right-click it for controls.
-
-Requires Peon-Ping to be installed and running — peon-pet reads from the Peon-Ping state file to know what's happening.
+Check your dock for the Peon-Ping logo — right-click it for controls.
 
 ## Install permanently (auto-start at login)
 
@@ -29,7 +27,7 @@ Requires Peon-Ping to be installed and running — peon-pet reads from the Peon-
 ./install.sh
 ```
 
-This installs a macOS LaunchAgent that starts peon-pet at login and restarts it automatically if it quits. Logs go to `/tmp/peon-pet.log`.
+Installs a macOS LaunchAgent that starts peon-pet at login and restarts it if it quits. Logs go to `/tmp/peon-pet.log`.
 
 To remove:
 
@@ -39,34 +37,39 @@ To remove:
 
 ## Dock controls
 
-Right-click the orc dock icon:
+Right-click the dock icon:
 
-- **Hide Pet** / **Show Pet** — toggle the widget without quitting
+- **Hide Pet** / **Show Pet** — toggle visibility without quitting
 - **Quit** — exit completely
 
 ## Animations
 
-| Peon-Ping event | Animation |
+| Claude Code event | Animation |
 |---|---|
-| Session start | Waking up |
-| Prompt submit / task complete | Typing |
-| Permission request / tool failure / context limit | Alarmed |
+| Session start / resume | Waking up (plays once) |
+| Prompt submit | Typing |
+| Task complete (Stop) | Celebrate |
+| Permission request / context compact | Alarmed |
+| Tool failure | Annoyed |
 
-The orc stays in typing mode while any Peon-Ping session is actively working (event within last 30 s). Returns to sleeping after 30 s of inactivity.
+The orc stays in typing mode while any session is actively working (event within last 30 s). Returns to sleeping after 30 s of inactivity.
 
 ## Session dots
 
-Up to 5 glowing orbs appear above the orc — one per tracked Peon-Ping session:
+Up to 5 glowing orbs appear above the orc — one per tracked Claude Code session:
 
-- **Bright pulsing green** — session active (event in last 30 s)
-- **Dim green** — session open but idle (last event 30 s–2 min ago)
-- **Hidden** — session gone cold
+- **Bright pulsing green** — active (event within last 30 s)
+- **Dim green** — idle (last event 30 s–2 min ago)
+
+Sessions are removed when Claude Code fires `SessionEnd`, or automatically after 10 min of inactivity.
+
+Hover over a dot to see its session ID and status. Hover anywhere on the widget for a session count summary.
 
 ## Development
 
 ```bash
 npm run dev    # starts with DevTools detached
-npm test       # runs Jest test suite (59 tests)
+npm test       # runs Jest test suite (63 tests)
 ```
 
 Simulate an event by writing to the peon-ping state file:
@@ -86,4 +89,19 @@ json.dump(state, open(f, 'w'))
 "
 ```
 
-Valid events: `SessionStart`, `Stop`, `UserPromptSubmit`, `PermissionRequest`, `PostToolUseFailure`, `PreCompact`
+Valid events: `SessionStart`, `SessionEnd`, `Stop`, `UserPromptSubmit`, `PermissionRequest`, `PostToolUseFailure`, `PreCompact`
+
+## Sprite atlas
+
+The orc sprite sheet is a 6×6 pixel art atlas (`renderer/assets/orc-sprite-atlas.png`, 3072×3072). Row layout:
+
+| Row | Animation |
+|---|---|
+| 0 | Sleeping |
+| 1 | Waking |
+| 2 | Typing |
+| 3 | Alarmed |
+| 4 | Celebrate |
+| 5 | Annoyed |
+
+See `docs/sprite-atlas-prompt.md` for the generation prompt used with image models.
