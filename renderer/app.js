@@ -106,7 +106,7 @@ borderMesh.position.z = 0.4;
 scene.add(borderMesh);
 
 // --- Session dots (glowing orbs) ---
-const MAX_DOTS = 5;
+const MAX_DOTS = 10;
 const DOT_SIZE = 12;
 const DOT_GAP  = 6;
 const DOT_Y    = 88;
@@ -350,15 +350,18 @@ canvas.addEventListener('mousemove', (e) => {
     const status = s.hot ? '<span style="color:#44ff44">active</span>'
                          : s.warm ? '<span style="color:#1aaa1a">idle</span>'
                          : '<span style="color:#555">cold</span>';
-    const short = s.id.slice(-8);
-    html = `\u2026${short} &bull; ${status}`;
+    const label = s.cwd ? s.cwd.split('/').filter(Boolean).pop() : ('\u2026' + s.id.slice(-8));
+    html = `${label} &bull; ${status}`;
   } else {
     const active = currentSessions.filter(s => s.hot).length;
     const total  = currentSessions.length;
     if (total === 0) {
       html = 'Peon Pet';
     } else {
-      html = `${active}/${total} session${total !== 1 ? 's' : ''}`;
+      const names = currentSessions
+        .map(s => s.cwd ? s.cwd.split('/').filter(Boolean).pop() : null)
+        .filter(Boolean);
+      html = names.length ? names.join(', ') : `${active}/${total} sessions`;
     }
   }
   tooltip.innerHTML = html;

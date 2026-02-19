@@ -56,7 +56,7 @@ The orc stays in typing mode while any session is actively working (event within
 
 ## Session dots
 
-Up to 5 glowing orbs appear above the orc — one per tracked Claude Code session:
+Up to 10 glowing orbs appear above the orc — one per tracked Claude Code session:
 
 - **Bright pulsing green** — active (event within last 30 s)
 - **Dim green** — idle (last event 30 s–2 min ago)

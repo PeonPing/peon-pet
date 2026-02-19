@@ -18,6 +18,7 @@ const STATE_FILE = path.join(os.homedir(), '.claude', 'hooks', 'peon-ping', '.st
 let lastTimestamp = 0;
 
 const tracker = createSessionTracker();
+const sessionCwds = new Map();  // session_id → cwd string
 const SESSION_PRUNE_MS = 10 * 60 * 1000;  // 10min — prune cold sessions
 const HOT_MS  = 30 * 1000;       // 30s  — actively working right now
 const WARM_MS = 2 * 60 * 1000;   // 2min — session open but idle
@@ -36,7 +37,7 @@ function startPolling() {
     const state = readStateFile();
     if (!state || !state.last_active) return;
 
-    const { timestamp, event, session_id } = state.last_active;
+    const { timestamp, event, session_id, cwd } = state.last_active;
     if (timestamp === lastTimestamp) return;
     lastTimestamp = timestamp;
 
@@ -45,6 +46,7 @@ function startPolling() {
     if (isValidSessionId(session_id)) {
       if (event === 'SessionEnd') {
         tracker.remove(session_id);
+        sessionCwds.delete(session_id);
       } else {
         // On SessionStart, deduplicate: if exactly one other session was seen
         // within the last 5s, it's likely the same window transitioning to a
@@ -60,13 +62,22 @@ function startPolling() {
           }
         }
         tracker.update(session_id, now);
+        if (cwd) sessionCwds.set(session_id, cwd);
       }
       tracker.prune(now - SESSION_PRUNE_MS);
+      // Keep sessionCwds in sync with tracker
+      for (const id of sessionCwds.keys()) {
+        if (!tracker.entries().some(([sid]) => sid === id)) sessionCwds.delete(id);
+      }
     }
 
     if (win && !win.isDestroyed()) {
-      const sessions = buildSessionStates(tracker.entries(), now, HOT_MS, WARM_MS, 5);
-      win.webContents.send('session-update', { sessions });
+      const sessions = buildSessionStates(tracker.entries(), now, HOT_MS, WARM_MS, 10);
+      const sessionsWithCwd = sessions.map(s => ({
+        ...s,
+        cwd: sessionCwds.get(s.id) || null,
+      }));
+      win.webContents.send('session-update', { sessions: sessionsWithCwd });
     }
 
     const anim = EVENT_TO_ANIM[event];
