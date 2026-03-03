@@ -48,7 +48,7 @@ const atlas = loader.load('peon-asset://sprite-atlas.png', () => {
 });
 
 // Square sprite — fills most of the 200×200 window
-const geometry = new THREE.PlaneGeometry(180, 180);
+let geometry = new THREE.PlaneGeometry(180, 180);
 const material = new THREE.MeshBasicMaterial({
   map: atlas,
   transparent: true,
@@ -281,7 +281,7 @@ const IDLE_TIMEOUT_MS = 30000;
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if (!anySessionActive) playAnim('sleeping');
+    if (!isSubAgent && !anySessionActive) playAnim('sleeping');
   }, IDLE_TIMEOUT_MS);
 }
 
@@ -340,7 +340,7 @@ function hitTestDots(px, py) {
   return -1;
 }
 
-canvas.addEventListener('mousemove', (e) => {
+function handleMouseMove(e) {
   const px = e.offsetX;
   const py = e.offsetY;
   const idx = hitTestDots(px, py);
@@ -371,16 +371,67 @@ canvas.addEventListener('mousemove', (e) => {
   const th = tooltip.offsetHeight;
   tooltip.style.left = Math.min(px + 6, 200 - tw - 2) + 'px';
   tooltip.style.top  = Math.min(py + 6, 200 - th - 2) + 'px';
-});
+}
 
-canvas.addEventListener('mouseleave', () => {
+function handleMouseLeave() {
   tooltip.style.display = 'none';
+}
+
+canvas.addEventListener('mousemove', handleMouseMove);
+canvas.addEventListener('mouseleave', handleMouseLeave);
+
+// --- Sub-agent config ---
+let isSubAgent = false;
+
+window.peonBridge.onConfig(({ size, subAgent }) => {
+  if (subAgent) isSubAgent = true;
+  // Resize HTML body to match window
+  document.documentElement.style.width = `${size}px`;
+  document.documentElement.style.height = `${size}px`;
+  document.body.style.width = `${size}px`;
+  document.body.style.height = `${size}px`;
+
+  // Resize renderer
+  renderer.setSize(size, size);
+
+  // Update camera bounds
+  const half = size / 2;
+  camera.left = -half;
+  camera.right = half;
+  camera.top = half;
+  camera.bottom = -half;
+  camera.updateProjectionMatrix();
+
+  // Resize meshes to fit smaller window
+  const inner = size * 0.9;
+  bgMesh.geometry.dispose();
+  bgMesh.geometry = new THREE.PlaneGeometry(inner, inner);
+  geometry.dispose();
+  geometry = new THREE.PlaneGeometry(inner, inner);
+  sprite.geometry = geometry;
+  borderMesh.geometry.dispose();
+  borderMesh.geometry = new THREE.PlaneGeometry(size, size);
+
+  // Re-apply current frame UVs to the new geometry
+  setFrame(currentAnim, currentFrame);
+
+  // Remove dots from scene
+  for (const mesh of dotMeshes) {
+    scene.remove(mesh);
+  }
+
+  // Disable tooltip
+  tooltip.style.display = 'none';
+  canvas.removeEventListener('mousemove', handleMouseMove);
+  canvas.removeEventListener('mouseleave', handleMouseLeave);
 });
 
 // --- IPC events ---
 let anySessionActive = false;
 
 window.peonBridge.onEvent(({ anim }) => {
+  // Sub-agents only respond to the initial waking event
+  if (isSubAgent && anim !== 'waking') return;
   // Don't wake if already active — only wake from sleep
   if (anim === 'waking' && currentAnim !== 'sleeping') return;
   playAnim(anim);
@@ -457,8 +508,8 @@ function animate(time) {
             pendingIdle = true;
             setTimeout(() => {
               pendingIdle = false;
-              // Keep typing if any session is still hot
-              if (anySessionActive) {
+              // Sub-agents always stay typing while alive
+              if (isSubAgent || anySessionActive) {
                 playAnim('typing');
               } else {
                 playAnim('sleeping');

@@ -11,6 +11,9 @@ const {
 
 let win;
 let petVisible = true;
+const subAgentWindows = new Map(); // session_id → BrowserWindow
+const dummySessionIds = new Set(); // dev-only: protected from sync cleanup
+const MAX_SUB_AGENT_WINDOWS = 5;
 
 // --- Character system ---
 // Canonical asset names → orc bundled filenames
@@ -78,6 +81,92 @@ async function readRemoteState(baseUrl) {
     return res.json();
   } catch {
     return null;
+  }
+}
+
+function repositionSubAgentWindows() {
+  const { height } = screen.getPrimaryDisplay().workAreaSize;
+  let i = 0;
+  for (const [, subWin] of subAgentWindows) {
+    if (!subWin.isDestroyed()) {
+      const mainY = height - 170;
+      subWin.setPosition(20, mainY - (i + 1) * 100);
+      i++;
+    }
+  }
+}
+
+function createSubAgentWindow(sessionId) {
+  if (subAgentWindows.size >= MAX_SUB_AGENT_WINDOWS) return;
+  if (subAgentWindows.has(sessionId)) return;
+
+  const { height } = screen.getPrimaryDisplay().workAreaSize;
+  const idx = subAgentWindows.size;
+
+  const subWin = new BrowserWindow({
+    width: 100,
+    height: 100,
+    x: 20,
+    y: (height - 170) - (idx + 1) * 100,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    focusable: false,
+    hasShadow: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  subWin.setIgnoreMouseEvents(true);
+
+  subWin.loadFile('renderer/index.html');
+
+  subWin.webContents.once('did-finish-load', () => {
+    subWin.webContents.send('peon-config', { size: 100, subAgent: true });
+    subWin.webContents.send('peon-event', { anim: 'waking', event: 'SessionStart' });
+    startMouseTrackingForWindow(subWin);
+  });
+
+  // Don't quit app when sub-agent window closes
+  subWin.on('closed', () => {
+    subAgentWindows.delete(sessionId);
+    repositionSubAgentWindows();
+  });
+
+  if (!petVisible) subWin.hide();
+
+  subAgentWindows.set(sessionId, subWin);
+}
+
+function destroySubAgentWindow(sessionId) {
+  const subWin = subAgentWindows.get(sessionId);
+  if (subWin && !subWin.isDestroyed()) {
+    subWin.destroy();
+  }
+  subAgentWindows.delete(sessionId);
+  repositionSubAgentWindows();
+}
+
+function syncSubAgentWindows(state) {
+  const agentSessions = state.agent_sessions || [];
+  const activeIds = new Set();
+
+  // Create windows for active sub-agent sessions
+  for (const sid of agentSessions) {
+    activeIds.add(sid);
+    createSubAgentWindow(sid);
+  }
+
+  // Destroy windows for sub-agent sessions that are no longer active
+  for (const sid of [...subAgentWindows.keys()]) {
+    if (!activeIds.has(sid) && !dummySessionIds.has(sid)) {
+      destroySubAgentWindow(sid);
+    }
   }
 }
 
@@ -173,21 +262,26 @@ function startPolling() {
   const remoteUrl = cfg.remoteUrl || 'http://127.0.0.1:19998';
 
   setInterval(async () => {
-    processStateUpdate(readStateFile(), lastTimestamp, (ts) => { lastTimestamp = ts; });
+    const state = readStateFile();
+    if (state) syncSubAgentWindows(state);
+    processStateUpdate(state, lastTimestamp, (ts) => { lastTimestamp = ts; });
     syncRemoteSessionsToTracker(await readRemoteState(remoteUrl));
   }, 200);
 }
 
 // Poll cursor position to enable mouse events only when hovering the window.
 // This lets the renderer receive mousemove for tooltips while keeping click-through.
-function startMouseTracking() {
-  setInterval(() => {
-    if (!win || win.isDestroyed()) return;
+function startMouseTrackingForWindow(targetWin) {
+  const intervalId = setInterval(() => {
+    if (!targetWin || targetWin.isDestroyed()) {
+      clearInterval(intervalId);
+      return;
+    }
     const { x: cx, y: cy } = screen.getCursorScreenPoint();
-    const [wx, wy] = win.getPosition();
-    const [ww, wh] = win.getSize();
+    const [wx, wy] = targetWin.getPosition();
+    const [ww, wh] = targetWin.getSize();
     const inside = cx >= wx && cx <= wx + ww && cy >= wy && cy <= wy + wh;
-    win.setIgnoreMouseEvents(!inside);
+    targetWin.setIgnoreMouseEvents(!inside);
   }, 50);
 }
 
@@ -199,8 +293,14 @@ function buildDockMenu() {
         if (!win || win.isDestroyed()) return;
         if (petVisible) {
           win.hide();
+          for (const [, subWin] of subAgentWindows) {
+            if (!subWin.isDestroyed()) subWin.hide();
+          }
         } else {
           win.show();
+          for (const [, subWin] of subAgentWindows) {
+            if (!subWin.isDestroyed()) subWin.show();
+          }
         }
         petVisible = !petVisible;
         app.dock.setMenu(buildDockMenu());
@@ -217,13 +317,13 @@ function buildDockMenu() {
 }
 
 function createWindow() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { height } = screen.getPrimaryDisplay().workAreaSize;
 
   win = new BrowserWindow({
     width: 200,
     height: 200,
-    x: 20,
-    y: height - 220,
+    x: 18,
+    y: height - 20,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -257,10 +357,34 @@ function createWindow() {
     win.webContents.openDevTools({ mode: 'detach' });
   }
 
+  // Clean up sub-agent windows when main window closes
+  win.on('closed', () => {
+    for (const [sid] of subAgentWindows) {
+      const subWin = subAgentWindows.get(sid);
+      if (subWin && !subWin.isDestroyed()) subWin.destroy();
+    }
+    subAgentWindows.clear();
+  });
+
   // Start polling once window is ready
   win.webContents.once('did-finish-load', () => {
     startPolling();
-    startMouseTracking();
+    startMouseTrackingForWindow(win);
+
+    // Dev-only: spawn dummy sub-agents for visual testing
+    if (process.argv.includes('--spawn-test')) {
+      const dummyIds = ['dummy-1', 'dummy-2', 'dummy-3'];
+      for (const id of dummyIds) {
+        dummySessionIds.add(id);
+        createSubAgentWindow(id);
+      }
+      setTimeout(() => {
+        for (const id of dummyIds) {
+          dummySessionIds.delete(id);
+          destroySubAgentWindow(id);
+        }
+      }, 20000);
+    }
   });
 }
 
