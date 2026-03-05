@@ -12,18 +12,40 @@ const {
 let win;
 let petVisible = true;
 const subAgentWindows = new Map(); // session_id → BrowserWindow
+const subAgentCreatedAt = new Map(); // session_id → creation timestamp (ms)
 const dummySessionIds = new Set(); // dev-only: protected from sync cleanup
 const MAX_SUB_AGENT_WINDOWS = 5;
 const SUB_AGENT_BASE_Y_OFFSET = 170; // px from bottom of work area to main pet
+const SUB_AGENT_TTL_MS = 10 * 60 * 1000; // 10 min — destroy stale windows if SubagentStop never fired
 
 // --- Character system ---
-// Canonical asset names → orc bundled filenames
-const ORC_FILE_MAP = {
-  'sprite-atlas.png': 'orc-sprite-atlas.png',
-  'borders.png':      'orc-borders.png',
-  'bg.png':           'bg-pixel.png',
-  'dock-icon.png':    'orc-dock-icon.png',
+// Per-character asset maps: canonical name → bundled filename
+// Only entries that differ from orc defaults need to be listed.
+const BUNDLED_CHARS = {
+  orc: {
+    'sprite-atlas.png': 'orc-sprite-atlas.png',
+    'borders.png':      'orc-borders.png',
+    'bg.png':           'bg-pixel.png',
+    'dock-icon.png':    'orc-dock-icon.png',
+  },
+  capybara: {
+    'sprite-atlas.png': 'capybara-sprite-atlas.png',
+    'borders.png':      'capybara-borders.png',
+    'dock-icon.png':    'capybara-dock-icon.png',
+  },
+  'hello-kitty': {
+    'sprite-atlas.png': 'hello-kitty-sprite-atlas.png',
+    'borders.png':      'hello-kitty-borders.png',
+    'dock-icon.png':    'hello-kitty-dock-icon.png',
+  },
 };
+
+function parseArgPath(flag) {
+  const i = process.argv.indexOf(flag);
+  return (i !== -1 && process.argv[i + 1]) ? process.argv[i + 1] : null;
+}
+
+const argCharacter = parseArgPath('--character');
 
 function loadPetConfig() {
   try {
@@ -35,22 +57,23 @@ function loadPetConfig() {
 
 function registerCharacterProtocol() {
   const cfg = loadPetConfig();
-  const char = cfg.character || 'orc';
-  const orcAssetsDir = path.join(__dirname, 'renderer', 'assets');
+  const char = argCharacter || cfg.character || 'orc';
+  const assetsDir = path.join(__dirname, 'renderer', 'assets');
   const customCharDir = path.join(app.getPath('userData'), 'characters', char);
+  const charMap = BUNDLED_CHARS[char] || {};
 
   protocol.handle('peon-asset', (request) => {
     const filename = new URL(request.url).hostname;
-    // For custom character: try custom dir first, fall back to orc
-    if (char !== 'orc' && fs.existsSync(path.join(customCharDir, filename))) {
+    // 1. User-installed character dir
+    if (fs.existsSync(path.join(customCharDir, filename))) {
       return net.fetch('file://' + path.join(customCharDir, filename));
     }
-    // Default orc: map canonical → actual filename
-    const orcFile = ORC_FILE_MAP[filename] || filename;
-    return net.fetch('file://' + path.join(orcAssetsDir, orcFile));
+    // 2. Bundled map: char-specific → orc fallback → filename as-is
+    const mapped = charMap[filename] || BUNDLED_CHARS.orc[filename] || filename;
+    return net.fetch('file://' + path.join(assetsDir, mapped));
   });
 
-  return { char, orcAssetsDir, customCharDir };
+  return { char, assetsDir, customCharDir };
 }
 
 // Path to peon-ping state file
@@ -136,12 +159,14 @@ function createSubAgentWindow(sessionId) {
   // Don't quit app when sub-agent window closes
   subWin.on('closed', () => {
     subAgentWindows.delete(sessionId);
+    subAgentCreatedAt.delete(sessionId);
     repositionSubAgentWindows();
   });
 
   if (!petVisible) subWin.hide();
 
   subAgentWindows.set(sessionId, subWin);
+  subAgentCreatedAt.set(sessionId, Date.now());
 }
 
 function destroySubAgentWindow(sessionId) {
@@ -150,10 +175,18 @@ function destroySubAgentWindow(sessionId) {
     subWin.destroy();
   }
   subAgentWindows.delete(sessionId);
+  subAgentCreatedAt.delete(sessionId);
   repositionSubAgentWindows();
 }
 
 function syncSubAgentWindows(state) {
+  // TTL sweep: destroy windows that have been open too long (e.g. SubagentStop never fired)
+  const now = Date.now();
+  const expired = [...subAgentCreatedAt.entries()]
+    .filter(([sid, createdAt]) => now - createdAt > SUB_AGENT_TTL_MS && !dummySessionIds.has(sid))
+    .map(([sid]) => sid);
+  for (const sid of expired) destroySubAgentWindow(sid);
+
   const agentSessions = state.agent_sessions || [];
   const activeIds = new Set();
 
@@ -345,11 +378,12 @@ function createWindow() {
 
   if (process.platform === 'darwin') {
     const cfg = loadPetConfig();
-    const char = cfg.character || 'orc';
+    const char = argCharacter || cfg.character || 'orc';
+    const assetsDir = path.join(__dirname, 'renderer', 'assets');
     const customIcon = path.join(app.getPath('userData'), 'characters', char, 'dock-icon.png');
-    const iconPath = (char !== 'orc' && fs.existsSync(customIcon))
-      ? customIcon
-      : path.join(__dirname, 'renderer', 'assets', 'orc-dock-icon.png');
+    const charMap = BUNDLED_CHARS[char] || {};
+    const iconFile = charMap['dock-icon.png'] || BUNDLED_CHARS.orc['dock-icon.png'];
+    const iconPath = fs.existsSync(customIcon) ? customIcon : path.join(assetsDir, iconFile);
     app.dock.setIcon(iconPath);
     app.dock.setMenu(buildDockMenu());
   }
