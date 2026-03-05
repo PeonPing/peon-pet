@@ -6,3 +6,5 @@ dist/
 
 # Scratch planning docs (AI-generated session artifacts)
 docs/plans/
+
+*.DS_Store
