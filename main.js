@@ -56,6 +56,7 @@ let lastTimestamp = 0;
 
 const tracker = createSessionTracker();
 const sessionCwds = new Map();  // session_id → cwd string
+const remoteSessionIds = new Set();
 const SESSION_PRUNE_MS = 10 * 60 * 1000;  // 10min — prune cold sessions
 const HOT_MS  = 30 * 1000;       // 30s  — actively working right now
 const WARM_MS = 2 * 60 * 1000;   // 2min — session open but idle
@@ -69,57 +70,105 @@ function readStateFile() {
   }
 }
 
-function startPolling() {
-  setInterval(() => {
-    const state = readStateFile();
-    if (!state || !state.last_active) return;
+async function readRemoteState(baseUrl) {
+  try {
+    const res = await net.fetch(`${baseUrl}/state`);
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
 
-    const { timestamp, event, session_id, cwd } = state.last_active;
-    if (timestamp === lastTimestamp) return;
-    lastTimestamp = timestamp;
+function processStateUpdate(state, lastTs, setLastTs) {
+  if (!state || !state.last_active) return lastTs;
 
-    const now = Date.now();
+  const { timestamp, event, session_id, cwd } = state.last_active;
+  if (timestamp === lastTs) return lastTs;
+  setLastTs(timestamp);
 
-    if (isValidSessionId(session_id)) {
-      if (event === 'SessionEnd') {
-        tracker.remove(session_id);
-        sessionCwds.delete(session_id);
-      } else {
-        // On SessionStart, deduplicate: if exactly one other session was seen
-        // within the last 5s, it's likely the same window transitioning to a
-        // resumed session (e.g. /resume in Claude Code) — replace it.
-        if (event === 'SessionStart') {
-          const existing = tracker.entries();
-          const isNew = !existing.some(([id]) => id === session_id);
-          if (isNew && existing.length === 1) {
-            const [oldId, oldTime] = existing[0];
-            if ((now - oldTime) < 5000) {
-              tracker.remove(oldId);
-            }
+  const now = Date.now();
+
+  if (isValidSessionId(session_id)) {
+    if (event === 'SessionEnd') {
+      tracker.remove(session_id);
+      sessionCwds.delete(session_id);
+    } else {
+      // On SessionStart, deduplicate: if exactly one other session was seen
+      // within the last 5s, it's likely the same window transitioning to a
+      // resumed session (e.g. /resume in Claude Code) — replace it.
+      if (event === 'SessionStart') {
+        const existing = tracker.entries();
+        const isNew = !existing.some(([id]) => id === session_id);
+        if (isNew && existing.length === 1) {
+          const [oldId, oldTime] = existing[0];
+          if ((now - oldTime) < 5000) {
+            tracker.remove(oldId);
           }
         }
-        tracker.update(session_id, now);
-        if (cwd) sessionCwds.set(session_id, cwd);
       }
-      tracker.prune(now - SESSION_PRUNE_MS);
-      // Keep sessionCwds in sync with tracker
-      for (const id of sessionCwds.keys()) {
-        if (!tracker.entries().some(([sid]) => sid === id)) sessionCwds.delete(id);
-      }
+      tracker.update(session_id, now);
+      if (cwd) sessionCwds.set(session_id, cwd);
     }
-
-    if (win && !win.isDestroyed()) {
-      const sessions = buildSessionStates(tracker.entries(), now, HOT_MS, WARM_MS, 10);
-      const sessionsWithCwd = sessions.map(s => ({
-        ...s,
-        cwd: sessionCwds.get(s.id) || null,
-      }));
-      win.webContents.send('session-update', { sessions: sessionsWithCwd });
+    tracker.prune(now - SESSION_PRUNE_MS);
+    // Keep sessionCwds in sync with tracker
+    for (const id of sessionCwds.keys()) {
+      if (!tracker.entries().some(([sid]) => sid === id)) sessionCwds.delete(id);
     }
+  }
 
-    const anim = EVENT_TO_ANIM[event];
-    if (anim && win && !win.isDestroyed()) {
-      win.webContents.send('peon-event', { anim, event });
+  if (win && !win.isDestroyed()) {
+    const sessions = buildSessionStates(tracker.entries(), now, HOT_MS, WARM_MS, 10);
+    const sessionsWithCwd = sessions.map(s => ({
+      ...s,
+      cwd: sessionCwds.get(s.id) || null,
+    }));
+    win.webContents.send('session-update', { sessions: sessionsWithCwd });
+  }
+
+  const anim = EVENT_TO_ANIM[event];
+  if (anim && win && !win.isDestroyed()) {
+    win.webContents.send('peon-event', { anim, event });
+  }
+
+  return timestamp;
+}
+
+function syncRemoteSessionsToTracker(state) {
+  if (!state || !state.sessions) return;
+  const now = Date.now();
+  const incoming = state.sessions;
+
+  for (const [sid, entry] of Object.entries(incoming)) {
+    if (!isValidSessionId(sid)) continue;
+    tracker.update(sid, entry.timestamp * 1000);  // relay uses Unix seconds
+    if (entry.cwd) sessionCwds.set(sid, entry.cwd);
+    remoteSessionIds.add(sid);
+  }
+
+  for (const sid of [...remoteSessionIds]) {
+    if (!incoming[sid]) {
+      tracker.remove(sid);
+      sessionCwds.delete(sid);
+      remoteSessionIds.delete(sid);
+    }
+  }
+
+  if (win && !win.isDestroyed()) {
+    const sessions = buildSessionStates(tracker.entries(), now, HOT_MS, WARM_MS, 10);
+    const sessionsWithCwd = sessions.map(s => ({ ...s, cwd: sessionCwds.get(s.id) || null }));
+    win.webContents.send('session-update', { sessions: sessionsWithCwd });
+  }
+}
+
+function startPolling() {
+  const cfg = loadPetConfig();
+  const remoteUrl = cfg.remoteUrl || null;
+
+  setInterval(async () => {
+    processStateUpdate(readStateFile(), lastTimestamp, (ts) => { lastTimestamp = ts; });
+    if (remoteUrl) {
+      syncRemoteSessionsToTracker(await readRemoteState(remoteUrl));
     }
   }, 200);
 }
