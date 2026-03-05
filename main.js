@@ -57,6 +57,7 @@ let lastTimestamp = 0;
 const tracker = createSessionTracker();
 const sessionCwds = new Map();  // session_id → cwd string
 const remoteSessionIds = new Set();
+const remoteLastEvents = new Map();  // session_id → last event string
 const SESSION_PRUNE_MS = 10 * 60 * 1000;  // 10min — prune cold sessions
 const HOT_MS  = 30 * 1000;       // 30s  — actively working right now
 const WARM_MS = 2 * 60 * 1000;   // 2min — session open but idle
@@ -144,6 +145,11 @@ function syncRemoteSessionsToTracker(state) {
     tracker.update(sid, entry.timestamp * 1000);  // relay uses Unix seconds
     if (entry.cwd) sessionCwds.set(sid, entry.cwd);
     remoteSessionIds.add(sid);
+    const anim = EVENT_TO_ANIM[entry.event];
+    if (anim && entry.event !== remoteLastEvents.get(sid)) {
+      remoteLastEvents.set(sid, entry.event);
+      if (win && !win.isDestroyed()) win.webContents.send('peon-event', { anim, event: entry.event });
+    }
   }
 
   for (const sid of [...remoteSessionIds]) {
@@ -151,6 +157,7 @@ function syncRemoteSessionsToTracker(state) {
       tracker.remove(sid);
       sessionCwds.delete(sid);
       remoteSessionIds.delete(sid);
+      remoteLastEvents.delete(sid);
     }
   }
 
