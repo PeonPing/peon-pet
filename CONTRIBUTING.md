@@ -114,3 +114,11 @@ To switch back to the default orc:
 { "character": "orc" }
 ```
 Or just delete `peon-pet-config.json`.
+
+### Window Corner
+
+Set the starting corner of the pet window in `peon-pet-config.json`:
+```json
+{ "corner": "bottom-right" }
+```
+Values: `"bottom-left"` (default), `"bottom-right"`, `"top-left"`, `"top-right"`.
