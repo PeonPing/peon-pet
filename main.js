@@ -1,13 +1,13 @@
 const { app, BrowserWindow, screen, Menu, protocol, net, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const {
   isValidSessionId,
   createSessionTracker,
   buildSessionStates,
   EVENT_TO_ANIM,
 } = require('./lib/session-tracker');
+const { JsonlWatcher } = require('./lib/jsonl-watcher');
 
 let win;
 let petVisible = true;
@@ -69,11 +69,6 @@ function registerCharacterProtocol() {
   return { char, assetsDir, customCharDir };
 }
 
-// Path to peon-ping state file
-const STATE_FILE = path.join(os.homedir(), '.claude', 'hooks', 'peon-ping', '.state.json');
-
-let lastTimestamp = 0;
-
 const tracker = createSessionTracker();
 const sessionCwds = new Map();  // session_id → cwd string
 const remoteSessionIds = new Set();
@@ -81,15 +76,6 @@ const remoteLastEvents = new Map();  // session_id → last event string
 const SESSION_PRUNE_MS = 10 * 60 * 1000;  // 10min — prune cold sessions
 const HOT_MS  = 30 * 1000;       // 30s  — actively working right now
 const WARM_MS = 2 * 60 * 1000;   // 2min — session open but idle
-
-function readStateFile() {
-  try {
-    const raw = fs.readFileSync(STATE_FILE, 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
 
 async function readRemoteState(baseUrl) {
   try {
@@ -101,58 +87,64 @@ async function readRemoteState(baseUrl) {
   }
 }
 
-function processStateUpdate(state, lastTs, setLastTs) {
-  if (!state || !state.last_active) return lastTs;
-
-  const { timestamp, event, session_id, cwd } = state.last_active;
-  if (timestamp === lastTs) return lastTs;
-  setLastTs(timestamp);
+function handleSessionEvent({ sessionId, event, cwd, timestamp }) {
+  if (!isValidSessionId(sessionId)) return;
 
   const now = Date.now();
 
-  if (isValidSessionId(session_id)) {
-    if (event === 'SessionEnd') {
-      tracker.remove(session_id);
-      sessionCwds.delete(session_id);
-    } else {
-      // On SessionStart, deduplicate: if exactly one other session was seen
-      // within the last 5s, it's likely the same window transitioning to a
-      // resumed session (e.g. /resume in Claude Code) — replace it.
-      if (event === 'SessionStart') {
-        const existing = tracker.entries();
-        const isNew = !existing.some(([id]) => id === session_id);
-        if (isNew && existing.length === 1) {
-          const [oldId, oldTime] = existing[0];
-          if ((now - oldTime) < 5000) {
-            tracker.remove(oldId);
-          }
-        }
-      }
-      tracker.update(session_id, now);
-      if (cwd) sessionCwds.set(session_id, cwd);
+  // SessionCwd: just update the display name, no tracker change
+  if (event === 'SessionCwd') {
+    if (cwd) {
+      sessionCwds.set(sessionId, cwd);
+      sendSessionUpdate(now);
     }
-    tracker.prune(now - SESSION_PRUNE_MS);
-    // Keep sessionCwds in sync with tracker
-    for (const id of sessionCwds.keys()) {
-      if (!tracker.entries().some(([sid]) => sid === id)) sessionCwds.delete(id);
-    }
+    return;
   }
 
-  if (win && !win.isDestroyed()) {
-    const sessions = buildSessionStates(tracker.entries(), now, HOT_MS, WARM_MS, 10);
-    const sessionsWithCwd = sessions.map(s => ({
-      ...s,
-      cwd: sessionCwds.get(s.id) || null,
-    }));
-    win.webContents.send('session-update', { sessions: sessionsWithCwd });
+  if (event === 'SessionEnd') {
+    tracker.remove(sessionId);
+    sessionCwds.delete(sessionId);
+  } else if (event === 'SessionSeen') {
+    // File existed at startup: register with actual file mtime, no animation, no dedup
+    tracker.update(sessionId, timestamp || now);
+    if (cwd) sessionCwds.set(sessionId, cwd);
+  } else {
+    if (event === 'SessionStart') {
+      // Deduplicate /resume: if exactly one session was seen <5s ago, replace it
+      const existing = tracker.entries();
+      const isNew = !existing.some(([id]) => id === sessionId);
+      if (isNew && existing.length === 1) {
+        const [oldId, oldTime] = existing[0];
+        if ((now - oldTime) < 5000) tracker.remove(oldId);
+      }
+    }
+    tracker.update(sessionId, now);
+    if (cwd) sessionCwds.set(sessionId, cwd);
   }
+
+  tracker.prune(now - SESSION_PRUNE_MS);
+  for (const id of sessionCwds.keys()) {
+    if (!tracker.entries().some(([sid]) => sid === id)) sessionCwds.delete(id);
+  }
+
+  sendSessionUpdate(now);
 
   const anim = EVENT_TO_ANIM[event];
   if (anim && win && !win.isDestroyed()) {
     win.webContents.send('peon-event', { anim, event });
   }
+}
 
-  return timestamp;
+function sendSessionUpdate(now) {
+  if (!win || win.isDestroyed()) return;
+  const sessions = buildSessionStates(tracker.entries(), now, HOT_MS, WARM_MS, 10);
+  win.webContents.send('session-update', {
+    sessions: sessions.map(s => ({
+      ...s,
+      cwd: sessionCwds.get(s.id) || null,
+      name: sessionCwds.get(s.id) ? path.basename(sessionCwds.get(s.id)) : null,
+    })),
+  });
 }
 
 function syncRemoteSessionsToTracker(state) {
@@ -181,21 +173,34 @@ function syncRemoteSessionsToTracker(state) {
     }
   }
 
-  if (win && !win.isDestroyed()) {
-    const sessions = buildSessionStates(tracker.entries(), now, HOT_MS, WARM_MS, 10);
-    const sessionsWithCwd = sessions.map(s => ({ ...s, cwd: sessionCwds.get(s.id) || null }));
-    win.webContents.send('session-update', { sessions: sessionsWithCwd });
-  }
+  sendSessionUpdate(now);
 }
 
 function startPolling() {
   const cfg = loadPetConfig();
   const remoteUrl = cfg.remoteUrl || 'http://127.0.0.1:19998';
 
+  const watcher = new JsonlWatcher();
+
+  watcher.on('session-event', handleSessionEvent);
+
+  watcher.start();
+
+  // Heartbeat: refresh session hot/warm status so the pet correctly decays.
+  // Sessions with pending tools are kept hot so the pet stays awake during long tool runs.
+  setInterval(() => {
+    if (tracker.entries().length === 0) return;
+    const now = Date.now();
+    for (const sessionId of watcher.getActiveSessionIds()) {
+      tracker.update(sessionId, now);
+    }
+    sendSessionUpdate(now);
+  }, 5000);
+
+  // Remote relay sync (less frequent, not time-critical)
   setInterval(async () => {
-    processStateUpdate(readStateFile(), lastTimestamp, (ts) => { lastTimestamp = ts; });
     syncRemoteSessionsToTracker(await readRemoteState(remoteUrl));
-  }, 200);
+  }, 5000);
 }
 
 // --- Drag state ---
