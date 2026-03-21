@@ -11,6 +11,13 @@ const {
 
 let win;
 let petVisible = true;
+let lastPendingSubagentTs = 0; // tracks last seen pending_subagent_pack.ts to detect SubagentStart
+const subAgentWindows = new Map(); // session_id → BrowserWindow
+const subAgentCreatedAt = new Map(); // session_id → creation timestamp (ms)
+const dummySessionIds = new Set(); // dev-only: protected from sync cleanup
+const MAX_SUB_AGENT_WINDOWS = 5;
+const SUB_AGENT_BASE_Y_OFFSET = 170; // px from bottom of work area to main pet
+const SUB_AGENT_TTL_MS = 10 * 60 * 1000; // 10 min — destroy stale windows if SubagentStop never fired
 
 // --- Character system ---
 // Per-character asset maps: canonical name → bundled filename
@@ -101,6 +108,99 @@ async function readRemoteState(baseUrl) {
   }
 }
 
+function repositionSubAgentWindows() {
+  const { height } = screen.getPrimaryDisplay().workAreaSize;
+  let i = 0;
+  for (const [, subWin] of subAgentWindows) {
+    if (!subWin.isDestroyed()) {
+      const mainY = height - SUB_AGENT_BASE_Y_OFFSET;
+      subWin.setPosition(20, mainY - (i + 1) * 100);
+      i++;
+    }
+  }
+}
+
+function createSubAgentWindow(sessionId) {
+  if (subAgentWindows.size >= MAX_SUB_AGENT_WINDOWS) return;
+  if (subAgentWindows.has(sessionId)) return;
+
+  const { height } = screen.getPrimaryDisplay().workAreaSize;
+  const idx = subAgentWindows.size;
+
+  const subWin = new BrowserWindow({
+    width: 100,
+    height: 100,
+    x: 20,
+    y: (height - SUB_AGENT_BASE_Y_OFFSET) - (idx + 1) * 100,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    focusable: false,
+    hasShadow: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  subWin.setIgnoreMouseEvents(true);
+
+  subWin.loadFile('renderer/index.html');
+
+  subWin.webContents.once('did-finish-load', () => {
+    subWin.webContents.send('peon-config', { size: 100, subAgent: true });
+    subWin.webContents.send('peon-event', { anim: 'waking', event: 'SessionStart' });
+    startMouseTrackingForWindow(subWin);
+  });
+
+  // Don't quit app when sub-agent window closes
+  subWin.on('closed', () => {
+    subAgentWindows.delete(sessionId);
+    subAgentCreatedAt.delete(sessionId);
+    repositionSubAgentWindows();
+  });
+
+  if (!petVisible) subWin.hide();
+
+  subAgentWindows.set(sessionId, subWin);
+  subAgentCreatedAt.set(sessionId, Date.now());
+}
+
+function destroySubAgentWindow(sessionId) {
+  const subWin = subAgentWindows.get(sessionId);
+  if (subWin && !subWin.isDestroyed()) {
+    subWin.destroy();
+  }
+  subAgentWindows.delete(sessionId);
+  subAgentCreatedAt.delete(sessionId);
+  repositionSubAgentWindows();
+}
+
+function syncSubAgentWindows(state) {
+  // TTL sweep: destroy windows that have been open too long (e.g. SubagentStop never fired)
+  const now = Date.now();
+  const expired = [...subAgentCreatedAt.entries()]
+    .filter(([sid, createdAt]) => now - createdAt > SUB_AGENT_TTL_MS && !dummySessionIds.has(sid))
+    .map(([sid]) => sid);
+  for (const sid of expired) destroySubAgentWindow(sid);
+
+  // Detect SubagentStart: pending_subagent_pack.ts is updated by peon.sh on each SubagentStart
+  const pendingPack = state.pending_subagent_pack;
+  if (pendingPack?.ts > lastPendingSubagentTs) {
+    lastPendingSubagentTs = pendingPack.ts;
+    createSubAgentWindow(`peon_sub_${Math.round(pendingPack.ts * 1000)}`);
+  }
+}
+
+function initLastPendingSubagentTs() {
+  const state = readStateFile();
+  const ts = state?.pending_subagent_pack?.ts;
+  if (ts) lastPendingSubagentTs = ts;
+}
+
 function processStateUpdate(state, lastTs, setLastTs) {
   if (!state || !state.last_active) return lastTs;
 
@@ -189,11 +289,22 @@ function syncRemoteSessionsToTracker(state) {
 }
 
 function startPolling() {
+  initLastPendingSubagentTs();
   const cfg = loadPetConfig();
   const remoteUrl = cfg.remoteUrl || 'http://127.0.0.1:19998';
 
   setInterval(async () => {
-    processStateUpdate(readStateFile(), lastTimestamp, (ts) => { lastTimestamp = ts; });
+    const state = readStateFile();
+    if (state) syncSubAgentWindows(state);
+    // Detect SubagentStop: each Stop event (SubagentStop maps to Stop in peon.sh)
+    // destroys the oldest pseudo sub-agent window. Parent's own final Stop is a no-op.
+    if (state?.last_active?.timestamp !== lastTimestamp && state?.last_active?.event === 'Stop') {
+      const oldest = [...subAgentWindows.keys()]
+        .filter(id => id.startsWith('peon_sub_') && !dummySessionIds.has(id))
+        .sort((a, b) => (subAgentCreatedAt.get(a) || 0) - (subAgentCreatedAt.get(b) || 0))[0];
+      if (oldest) destroySubAgentWindow(oldest);
+    }
+    processStateUpdate(state, lastTimestamp, (ts) => { lastTimestamp = ts; });
     syncRemoteSessionsToTracker(await readRemoteState(remoteUrl));
   }, 200);
 }
@@ -224,25 +335,32 @@ ipcMain.on('drag-stop', () => {
 // Poll cursor position to enable mouse events only when hovering the window.
 // This lets the renderer receive mousemove for tooltips while keeping click-through.
 // During drag, moves the window to follow the cursor.
-function startMouseTracking() {
-  setInterval(() => {
-    if (!win || win.isDestroyed()) return;
+function startMouseTrackingForWindow(targetWin) {
+  const intervalId = setInterval(() => {
+    if (!targetWin || targetWin.isDestroyed()) {
+      clearInterval(intervalId);
+      return;
+    }
     const { x: cx, y: cy } = screen.getCursorScreenPoint();
 
-    if (isDragging) {
+    if (targetWin === win && isDragging) {
       const nx = cx - dragOffsetX;
       const ny = cy - dragOffsetY;
-      const [wx, wy] = win.getPosition();
-      if (nx !== wx || ny !== wy) win.setPosition(nx, ny);
+      const [wx, wy] = targetWin.getPosition();
+      if (nx !== wx || ny !== wy) targetWin.setPosition(nx, ny);
       return;
     }
 
-    const [wx, wy] = win.getPosition();
-    const [ww, wh] = win.getSize();
+    const [wx, wy] = targetWin.getPosition();
+    const [ww, wh] = targetWin.getSize();
     const inside = cx >= wx && cx <= wx + ww && cy >= wy && cy <= wy + wh;
-    if (inside !== !ignoringMouse) {
-      win.setIgnoreMouseEvents(!inside);
-      ignoringMouse = !inside;
+    if (targetWin === win) {
+      if (inside !== !ignoringMouse) {
+        targetWin.setIgnoreMouseEvents(!inside);
+        ignoringMouse = !inside;
+      }
+    } else {
+      targetWin.setIgnoreMouseEvents(!inside);
     }
   }, 50);
 }
@@ -255,8 +373,14 @@ function buildDockMenu() {
         if (!win || win.isDestroyed()) return;
         if (petVisible) {
           win.hide();
+          for (const [, subWin] of subAgentWindows) {
+            if (!subWin.isDestroyed()) subWin.hide();
+          }
         } else {
           win.show();
+          for (const [, subWin] of subAgentWindows) {
+            if (!subWin.isDestroyed()) subWin.show();
+          }
         }
         petVisible = !petVisible;
         app.dock.setMenu(buildDockMenu());
@@ -321,10 +445,33 @@ function createWindow() {
   // Reset drag if renderer reloads or crashes
   win.webContents.on('did-finish-load', () => { isDragging = false; });
 
+  // Clean up sub-agent windows when main window closes
+  win.on('closed', () => {
+    for (const subWin of subAgentWindows.values()) {
+      if (!subWin.isDestroyed()) subWin.destroy();
+    }
+    subAgentWindows.clear();
+  });
+
   // Start polling once window is ready
   win.webContents.once('did-finish-load', () => {
     startPolling();
-    startMouseTracking();
+    startMouseTrackingForWindow(win);
+
+    // Dev-only: spawn dummy sub-agents for visual testing
+    if (process.argv.includes('--spawn-test')) {
+      const dummyIds = ['dummy-1', 'dummy-2', 'dummy-3'];
+      for (const id of dummyIds) {
+        dummySessionIds.add(id);
+        createSubAgentWindow(id);
+      }
+      setTimeout(() => {
+        for (const id of dummyIds) {
+          dummySessionIds.delete(id);
+          destroySubAgentWindow(id);
+        }
+      }, 3000);
+    }
   });
 }
 
