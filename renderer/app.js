@@ -340,7 +340,37 @@ function hitTestDots(px, py) {
   return -1;
 }
 
+// --- Drag handling ---
+let dragging = false;
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;  // left-click only
+  dragging = true;
+  tooltip.style.display = 'none';
+  canvas.setPointerCapture(e.pointerId);
+  window.peonBridge.startDrag();
+});
+
+canvas.addEventListener('pointerup', (e) => {
+  if (e.button !== 0 || !dragging) return;
+  dragging = false;
+  window.peonBridge.stopDrag();
+});
+
+canvas.addEventListener('lostpointercapture', () => {
+  if (!dragging) return;
+  dragging = false;
+  window.peonBridge.stopDrag();
+});
+
+canvas.addEventListener('pointercancel', () => {
+  if (!dragging) return;
+  dragging = false;
+  window.peonBridge.stopDrag();
+});
+
 function handleMouseMove(e) {
+  if (dragging) return;  // suppress tooltip during drag
   const px = e.offsetX;
   const py = e.offsetY;
   const idx = hitTestDots(px, py);
@@ -374,7 +404,7 @@ function handleMouseMove(e) {
 }
 
 function handleMouseLeave() {
-  tooltip.style.display = 'none';
+  if (!dragging) tooltip.style.display = 'none';
 }
 
 canvas.addEventListener('mousemove', handleMouseMove);

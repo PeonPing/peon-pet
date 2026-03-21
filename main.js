@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, Menu, protocol, net } = require('electron');
+const { app, BrowserWindow, screen, Menu, protocol, net, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -20,13 +20,32 @@ const SUB_AGENT_BASE_Y_OFFSET = 170; // px from bottom of work area to main pet
 const SUB_AGENT_TTL_MS = 10 * 60 * 1000; // 10 min — destroy stale windows if SubagentStop never fired
 
 // --- Character system ---
-// Canonical asset names → orc bundled filenames
-const ORC_FILE_MAP = {
-  'sprite-atlas.png': 'orc-sprite-atlas.png',
-  'borders.png':      'orc-borders.png',
-  'bg.png':           'bg-pixel.png',
-  'dock-icon.png':    'orc-dock-icon.png',
+// Per-character asset maps: canonical name → bundled filename
+const BUNDLED_CHARS = {
+  orc: {
+    'sprite-atlas.png': 'orc-sprite-atlas.png',
+    'borders.png':      'orc-borders.png',
+    'bg.png':           'bg-pixel.png',
+    'dock-icon.png':    'orc-dock-icon.png',
+  },
+  capybara: {
+    'sprite-atlas.png': 'capybara-sprite-atlas.png',
+    'borders.png':      'capybara-borders.png',
+    'dock-icon.png':    'capybara-dock-icon.png',
+  },
+  'hello-kitty': {
+    'sprite-atlas.png': 'hello-kitty-sprite-atlas.png',
+    'borders.png':      'hello-kitty-borders.png',
+    'dock-icon.png':    'hello-kitty-dock-icon.png',
+  },
 };
+
+function parseArgPath(flag) {
+  const i = process.argv.indexOf(flag);
+  return (i !== -1 && process.argv[i + 1]) ? process.argv[i + 1] : null;
+}
+
+const argCharacter = parseArgPath('--character');
 
 function loadPetConfig() {
   try {
@@ -38,22 +57,23 @@ function loadPetConfig() {
 
 function registerCharacterProtocol() {
   const cfg = loadPetConfig();
-  const char = cfg.character || 'orc';
-  const orcAssetsDir = path.join(__dirname, 'renderer', 'assets');
+  const char = argCharacter || cfg.character || 'orc';
+  const assetsDir = path.join(__dirname, 'renderer', 'assets');
   const customCharDir = path.join(app.getPath('userData'), 'characters', char);
+  const charMap = BUNDLED_CHARS[char] || {};
 
   protocol.handle('peon-asset', (request) => {
     const filename = new URL(request.url).hostname;
-    // For custom character: try custom dir first, fall back to orc
-    if (char !== 'orc' && fs.existsSync(path.join(customCharDir, filename))) {
+    // 1. User-installed character dir
+    if (fs.existsSync(path.join(customCharDir, filename))) {
       return net.fetch('file://' + path.join(customCharDir, filename));
     }
-    // Default orc: map canonical → actual filename
-    const orcFile = ORC_FILE_MAP[filename] || filename;
-    return net.fetch('file://' + path.join(orcAssetsDir, orcFile));
+    // 2. Bundled map: char-specific → orc fallback → filename as-is
+    const mapped = charMap[filename] || BUNDLED_CHARS.orc[filename] || filename;
+    return net.fetch('file://' + path.join(assetsDir, mapped));
   });
 
-  return { char, orcAssetsDir, customCharDir };
+  return { char, assetsDir, customCharDir };
 }
 
 // Path to peon-ping state file
@@ -289,8 +309,32 @@ function startPolling() {
   }, 200);
 }
 
+// --- Drag state ---
+let isDragging = false;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+let ignoringMouse = true;  // tracks last setIgnoreMouseEvents value
+
+ipcMain.on('drag-start', () => {
+  if (!win || win.isDestroyed()) return;
+  isDragging = true;
+  const { x: cx, y: cy } = screen.getCursorScreenPoint();
+  const [wx, wy] = win.getPosition();
+  dragOffsetX = cx - wx;
+  dragOffsetY = cy - wy;
+  if (ignoringMouse) {
+    win.setIgnoreMouseEvents(false);
+    ignoringMouse = false;
+  }
+});
+
+ipcMain.on('drag-stop', () => {
+  isDragging = false;
+});
+
 // Poll cursor position to enable mouse events only when hovering the window.
 // This lets the renderer receive mousemove for tooltips while keeping click-through.
+// During drag, moves the window to follow the cursor.
 function startMouseTrackingForWindow(targetWin) {
   const intervalId = setInterval(() => {
     if (!targetWin || targetWin.isDestroyed()) {
@@ -298,10 +342,26 @@ function startMouseTrackingForWindow(targetWin) {
       return;
     }
     const { x: cx, y: cy } = screen.getCursorScreenPoint();
+
+    if (targetWin === win && isDragging) {
+      const nx = cx - dragOffsetX;
+      const ny = cy - dragOffsetY;
+      const [wx, wy] = targetWin.getPosition();
+      if (nx !== wx || ny !== wy) targetWin.setPosition(nx, ny);
+      return;
+    }
+
     const [wx, wy] = targetWin.getPosition();
     const [ww, wh] = targetWin.getSize();
     const inside = cx >= wx && cx <= wx + ww && cy >= wy && cy <= wy + wh;
-    targetWin.setIgnoreMouseEvents(!inside);
+    if (targetWin === win) {
+      if (inside !== !ignoringMouse) {
+        targetWin.setIgnoreMouseEvents(!inside);
+        ignoringMouse = !inside;
+      }
+    } else {
+      targetWin.setIgnoreMouseEvents(!inside);
+    }
   }, 50);
 }
 
@@ -336,14 +396,18 @@ function buildDockMenu() {
   ]);
 }
 
+const { WIN_SIZE, WIN_MARGIN, cornerPosition } = require('./lib/window-position');
+
 function createWindow() {
-  const { height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const cfg = loadPetConfig();
+  const { x, y } = cornerPosition(cfg.corner, width, height);
 
   win = new BrowserWindow({
-    width: 200,
-    height: 200,
-    x: 18,
-    y: height - 20,
+    width: WIN_SIZE,
+    height: WIN_SIZE,
+    x,
+    y,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -364,11 +428,12 @@ function createWindow() {
 
   if (process.platform === 'darwin') {
     const cfg = loadPetConfig();
-    const char = cfg.character || 'orc';
+    const char = argCharacter || cfg.character || 'orc';
+    const assetsDir = path.join(__dirname, 'renderer', 'assets');
     const customIcon = path.join(app.getPath('userData'), 'characters', char, 'dock-icon.png');
-    const iconPath = (char !== 'orc' && fs.existsSync(customIcon))
-      ? customIcon
-      : path.join(__dirname, 'renderer', 'assets', 'orc-dock-icon.png');
+    const charMap = BUNDLED_CHARS[char] || {};
+    const iconFile = charMap['dock-icon.png'] || BUNDLED_CHARS.orc['dock-icon.png'];
+    const iconPath = fs.existsSync(customIcon) ? customIcon : path.join(assetsDir, iconFile);
     app.dock.setIcon(iconPath);
     app.dock.setMenu(buildDockMenu());
   }
@@ -376,6 +441,9 @@ function createWindow() {
   if (process.argv.includes('--dev')) {
     win.webContents.openDevTools({ mode: 'detach' });
   }
+
+  // Reset drag if renderer reloads or crashes
+  win.webContents.on('did-finish-load', () => { isDragging = false; });
 
   // Clean up sub-agent windows when main window closes
   win.on('closed', () => {
