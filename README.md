@@ -8,7 +8,7 @@ Sits in the bottom-left corner of your screen, floats over all windows, and igno
 
 ## Requirements
 
-- macOS (Linux/Windows untested)
+- macOS 13 or later (required by Electron 44; Linux/Windows untested)
 - Node.js 18+
 - [peon-ping](https://peonping.com) installed and running
 
