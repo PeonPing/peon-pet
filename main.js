@@ -9,6 +9,19 @@ const {
 } = require('./lib/session-tracker');
 const { JsonlWatcher } = require('./lib/jsonl-watcher');
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'peon-asset',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+]);
+
 let win;
 let petVisible = true;
 const subAgentWindows = new Map(); // session_id → BrowserWindow
